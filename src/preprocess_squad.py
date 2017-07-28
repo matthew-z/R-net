@@ -1,16 +1,18 @@
+import functools
 import json
 import os
-
-import pickle
-import progressbar
-import torchtext
-import spacy
-from torchtext import data
 import random
 from collections import Counter
 
+import dill
+import nltk
+import progressbar
+import spacy
+from torchtext import data
+
 spacy_en = spacy.load("en")
-tokenizer = lambda s: [tok.text for tok in spacy_en.tokenizer(s)]
+
+DEBUG = True
 
 
 def read_train_json(path):
@@ -29,7 +31,7 @@ def read_train_json(path):
                     answer_start = int(ans["answer_start"])
                     answer_text = ans["text"]
                     lines.append([title, context, question, answer_start, answer_text])
-    return lines
+    return lines[:100] if DEBUG else lines
 
 
 def read_dev_json(path):
@@ -58,7 +60,7 @@ def read_dev_json(path):
                     answer_text = answers[random.choice(range(len(answers)))]["text"]
 
                 lines.append([title, context, question, question_id, answer_text])
-    return lines
+    return lines[:100] if DEBUG else lines
 
 
 def read_test_json(path):
@@ -87,22 +89,18 @@ def read_test_json(path):
                     answer_text = answers[random.choice(range(len(answers)))]["text"]
 
                 lines.append([title, context, question, question_id, answer_text])
-    return lines
+    return lines[:100] if DEBUG else lines
 
 
-
-def tokenized_by_answer(context, text, start,tokenize):
+def tokenized_by_answer(context, text, start, tokenizer):
     fore = context[:start]
     mid = context[start: start + len(text)]
     after = context[start + len(text):]
 
-    if tokenize == "spacy":
-        tokenize = lambda s: tuple([tok.text for tok in spacy_en.tokenizer(s)])
-
-    tokenized_fore = tokenize(fore)
-    tokenized_mid = tokenize(mid)
-    tokenized_after = tokenize(after)
-    tokenized_text = tokenize(text)
+    tokenized_fore = tokenizer(fore)
+    tokenized_mid = tokenizer(mid)
+    tokenized_after = tokenizer(after)
+    tokenized_text = tokenizer(text)
 
     for i, j in zip(tokenized_text, tokenized_mid):
         if i != j:
@@ -126,94 +124,104 @@ def extract_test_examples(fields, path):
         examples.append(ex)
     return examples
 
-def extract_dev_examples(fields, path):
-    bar = progressbar.ProgressBar()
 
-    examples = []
-    lines = read_dev_json(path)
-    for _, context, question, question_id, answer_text in bar(lines):
-        ex = data.Example.fromlist([context, question, question_id, answer_text],
-                                   fields)
-        examples.append(ex)
-    return examples
-
-
-def extract_train_examples(fields, path, tokenize="spacy"):
+def extract_train_examples(fields, path, tokenizer):
     bar = progressbar.ProgressBar()
     examples = []
     lines = read_train_json(path)
     for _, context, question, answer_start, answer_text in bar(lines):
         question_tokens = tokenizer(question)
-        passage_tokens, answer_start_token, answer_end_token = tokenized_by_answer(context, answer_text, answer_start, tokenize)
-        ex = data.Example.fromlist([passage_tokens, question_tokens, answer_start_token, answer_end_token, answer_text],
-                                   fields)
+        passage_tokens, answer_start_token, answer_end_token = tokenized_by_answer(context, answer_text,
+                                                                                   answer_start, tokenizer)
+        ex = data.Example.fromlist([passage_tokens, question_tokens, answer_start_token, answer_end_token], fields)
         examples.append(ex)
     return examples
 
-def get_dataset(json_path, example_file=None, mode="train", tokenize="spacy"):
-    if mode == "train":
-        example_file = "./data/squad/train.examples" if example_file is None else example_file
-        extract_method = extract_train_examples
-        fields = [("passage", data.Field(tokenize=tuple)),
-                  ("question", data.Field(tokenize=tokenize)),
-                  ("answer_start", data.Field(sequential=False, use_vocab=False, preprocessing=int)),
-                  ("answer_end", data.Field(sequential=False, use_vocab=False, preprocessing=int)),
-                  ("answer_text", data.Field(tokenize=tokenize))]
 
-    elif mode == "dev":
-        example_file = "./data/squad/dev.examples" if example_file is None else example_file
-        extract_method = extract_dev_examples
-        fields = [("passage", data.Field(tokenize=tokenize)),
-                  ("question", data.Field(tokenize=tokenize)),
-                  ("question_id", data.Field(sequential=False, use_vocab=False)),
-                  ("answer_text", data.Field(tokenize=tokenize))]
+def get_dataset(json_path, cache_root="./data/cache", mode="train", tokenizer=None):
+    examples, fields = build_examples_from_json(json_path, mode, tokenizer)
 
-    elif mode == 'test':
-        example_file = "./data/squad/test.examples" if example_file is None else example_file
-        extract_method = extract_test_examples
-        fields = [("passage", data.Field(tokenize=tokenize)),
-                  ("question", data.Field(tokenize=tokenize)),
-                  ("question_id", data.Field(sequential=False))]
-
-    else:
-        raise ValueError("Incorrect mode %s for building dataset" % mode)
-
-    if os.path.exists(example_file):
-        examples = pickle.load(open(example_file, "rb"))
-    else:
-        examples = extract_method(fields, json_path)
-        pickle.dump(examples, open(example_file, "wb"))
+    # examples_file_name="%s%s.examples" % (mode, "_DEBUG" if DEBUG else "")
+    # example_file = os.path.join(cache_root, examples_file_name)
+    #
+    # if os.path.exists(example_file):
+    #     print("loading examples from %s" % example_file)
+    #     examples = pickle.load(open(example_file, "rb"))
+    # else:
+    #     print("building examples %s" % example_file)
+    #     examples = extract_method(fields, json_path)
+    #     pickle.dump(examples, open(example_file, "wb"))
 
     squad_dataset = data.Dataset(examples, fields)
 
-    squad_dataset.fields["passage"].build_vocab(squad_dataset, [x.question for x in squad_dataset.examples], wv_type='glove.840B',
-                                      wv_dir="./data/embedding/glove_word/", unk_init="zero")
-    squad_dataset.fields["question"].build_vocab(squad_dataset, [x.passage for x in squad_dataset.examples], wv_type='glove.840B',
-                                      wv_dir="./data/embedding/glove_word/", unk_init="zero")
+    # build voc
+    squad_dataset.fields["passage"].build_vocab(squad_dataset, [x.question for x in squad_dataset.examples],
+                                                wv_type='glove.840B', wv_dir="./data/embedding/glove_word/",
+                                                unk_init="zero")
 
-    squad_dataset.fields["answer_text"].build_vocab(squad_dataset,[x.passage for x in squad_dataset.examples], wv_type='glove.840B',
-                                      wv_dir="./data/embedding/glove_word/", unk_init="zero")
+    squad_dataset.fields["question"].vocab = squad_dataset.fields["passage"].vocab
 
+    #
+    # squad_dataset.fields["question"].build_vocab(squad_dataset, [x.passage for x in squad_dataset.examples],
+    #                                              wv_type='glove.840B', wv_dir="./data/embedding/glove_word/",
+    #                                              unk_init="zero")
 
-    squad_dataset.sort_key = lambda x:(len(x.question), len(x.passage))
+    dataset_file_name = "%s%s.dataset" % (mode, "_DEBUG" if DEBUG else "")
+
+    # squad_dataset.fields["answer_text"].build_vocab(squad_dataset,[x.passage for x in squad_dataset.examples], wv_type='glove.840B',
+    #                                   wv_dir="./data/embedding/glove_word/", unk_init="zero")
+    squad_dataset.sort_key = lambda x: (len(x.question), len(x.passage))
+    dill.dump(squad_dataset, open(os.path.join(cache_root, dataset_file_name), "wb"))
     return squad_dataset
 
 
-def get_iter_for_training(batch_size=128, device=None):
+def build_examples_from_json(json_path, mode, tokenizer):
+    if tokenizer == "spacy":
+        tokenizer = lambda s: [tok.text for tok in spacy_en.tokenizer(s)]
+    elif tokenizer is None:
+        tokenizer = nltk.word_tokenize
+    if mode == "train":
+        extract_method = functools.partial(extract_train_examples, tokenizer=tokenizer)
+
+        fields = [("passage", data.Field(tokenize=tuple)),
+                  ("question", data.Field(tokenize=tokenizer)),
+                  ("answer_start", data.Field(sequential=False, use_vocab=False, preprocessing=int)),
+                  ("answer_end", data.Field(sequential=False, use_vocab=False, preprocessing=int)),
+                  # ("answer_text", data.Field(tokenize=tokenize))
+                  ]
+
+    elif mode == "dev":
+        extract_method = extract_test_examples
+        fields = [("passage", data.Field(tokenize=tokenizer)),
+                  ("question", data.Field(tokenize=tokenizer)),
+                  ("question_id", data.Field(sequential=False, use_vocab=False)),
+                  # ("answer_text", data.Field(tokenize=tokenize))
+                  ]
+
+    elif mode == 'test':
+        extract_method = extract_test_examples
+        fields = [("passage", data.Field(tokenize=tokenizer)),
+                  ("question", data.Field(tokenize=tokenizer)),
+                  ("question_id", data.Field(sequential=False, use_vocab=False))]
+
+    else:
+        raise ValueError("Incorrect mode %s for building dataset" % mode)
+    examples = extract_method(fields, json_path)
+    return examples, fields
+
+
+def get_iter_for_training(batch_size=128, device=None, tokenizer=None, cache_root="./data/cache"):
     train_json = "./data/squad/train-v1.1.json"
     dev_json = "./data/squad/dev-v1.1.json"
 
-    train_dataset = get_dataset(json_path=train_json, mode="train")
-    dev_dataset = get_dataset(json_path=dev_json, mode="dev")
+    train_dataset = get_dataset(json_path=train_json, mode="train", tokenizer=tokenizer, cache_root=cache_root)
+    dev_dataset = get_dataset(json_path=dev_json, mode="dev", tokenizer=tokenizer, cache_root=cache_root)
 
     train_iter, dev_iter = data.BucketIterator.splits(
-        (train_dataset, dev_dataset), batch_size=batch_size,device=device)
+        (train_dataset, dev_dataset), batch_size=batch_size, device=device)
 
     return train_iter, dev_iter
 
-train_iter, dev_iter=get_iter_for_training(device=-1)
-train_iter.init_epoch()
-for batch_idx, batch in enumerate(train_iter):
-    print(batch.passage)
-    if batch_idx>5:
-        break
+
+train_json = "./data/squad/train-v1.1.json"
+get_dataset(json_path=train_json, mode="train")
