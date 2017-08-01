@@ -26,8 +26,11 @@ UNK = 0
 PAD = 1
 SOS = 2
 EOS = 3
+
+
 class Example(object):
     pass
+
 
 def read_train_json(path):
     with open(path) as fin:
@@ -60,9 +63,6 @@ def read_train_json(path):
 
                     if DEBUG and len(examples) >= DEBUG_LEN:
                         return examples, context_list
-
-
-
 
     return examples, context_list
 
@@ -164,6 +164,7 @@ def create_padded_batch(max_length=5000, batch_first=False, sort=False, pack=Fal
             return pack_padded_sequence(seq_tensor, lengths, batch_first=batch_first)
         else:
             return (seq_tensor, lengths)
+
     return collate
 
 
@@ -175,13 +176,16 @@ def get_word_counter(*seqs):
             counter[word] += 1
     return counter
 
+
 def truncate_word_counter(word_counter, max_symbols):
     words = [(freq, word) for word, freq in word_counter.items()]
     words.sort()
-    return {word : freq for freq, word in words[:max_symbols]}
+    return {word: freq for freq, word in words[:max_symbols]}
+
 
 class SQuAD(Dataset):
-    def __init__(self, path,  word_embedding, char_embedding, embedding_cache_root=None, split="train", tokenization="nltk", insert_start=SOS, insert_end=EOS,  char_level=True):
+    def __init__(self, path, word_embedding, char_embedding, embedding_cache_root=None, split="train",
+                 tokenization="nltk", insert_start=SOS, insert_end=EOS, char_level=True):
         self._set_tokenizer(tokenization)
         examples_raw, context_with_counter = read_train_json(path)
         self.embedding_cache_root = embedding_cache_root
@@ -193,7 +197,7 @@ class SQuAD(Dataset):
 
     def read_embedding(self, word_embedding):
         root, word_type, dim = word_embedding
-        wv_dict, wv_vectors, wv_size  = vocab.load_word_vectors(root, word_type, dim)
+        wv_dict, wv_vectors, wv_size = vocab.load_word_vectors(root, word_type, dim)
         return wv_dict, wv_vectors, wv_size
 
     def _build_vocab(self, word_counter, word_embedding, char_embedding=None):
@@ -221,13 +225,12 @@ class SQuAD(Dataset):
 
         elif tokenization == "spacy":
             spacy_en = spacy.load("en")
+
             def spacy_tokenizer(seq):
                 return [w.text for w in spacy_en(seq)]
+
             self.tokenizer = spacy_tokenizer
 
         raise ValueError("Incorrect tokenization method %s" % tokenization)
-
-
-
 if __name__ == "__main__":
     train_json = "./data/squad/train-v1.1.json"

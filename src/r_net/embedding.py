@@ -2,10 +2,35 @@
 
 import torch
 from torch import nn
-from torch.nn.utils.rnn import pack_padded_sequence
-
+from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
+import torchtext
 from torch.utils.data import DataLoader
 from torch.autograd import Variable
+
+class GRU(torch.nn.Module):
+    """ used to train char-level embedding"""
+    def __init__(self, input_size, vocab_size, hidden_size, num_layers=1, bidirectional=True, cell_type="lstm"):
+        super().__init__()
+        self.input_layer = torch.nn.Linear(input_size, hidden_size)
+        self.output_layer = torch.nn.Linear(hidden_size * 2 if bidirectional else hidden_size, vocab_size)
+
+        cell_type = cell_type.lower()
+        if cell_type == "gru":
+            network = torch.nn.GRU
+        elif cell_type == "lstm":
+            network = torch.nn.LSTM
+        else:
+            raise ValueError("invalid cell type %s" % cell_type)
+
+        self.network = network(input_size=input_size, hidden_size=hidden_size,
+                                    num_layers=num_layers, bidirectional=bidirectional)
+
+    def forward(self, pack):
+        outputs, hidden = self.network(pack)
+        outputs, lengths = pad_packed_sequence(outputs)
+        outputs = self.output_layer(outputs)
+        outputs = pack_padded_sequence(outputs, lengths)
+        return outputs, hidden
 
 def collate(examples):
     embed_size = examples[0][0].size(1)
@@ -22,7 +47,50 @@ def collate(examples):
     for i, s in enumerate(seqs):
         end_seq = lengths[i]
         seq_tensor[:end_seq, i, :].copy_(s[:end_seq])
-    return pack_padded_sequence(Variable(seq_tensor), lengths), words
+    return pack_padded_sequence(Variable(seq_tensor, requires_grad=False), lengths), words
+
+
+
+
+def build_padded_target(target_words, char_dict):
+    max_len = max(len(x) for x in target_words)
+    target = torch.zeros(max_len, len(target_words))
+
+    for i, word in enumerate(target_words):
+        chars_without_init = torch.LongTensor([char_dict[c] for c in word[1:]] + [0])
+        target[:len(chars_without_init), i].copy_(chars_without_init)
+
+    return Variable(target.unsqueeze(2))
+
+
+def build_target(target_words, char_dict):
+    target = []
+
+    for i, word in enumerate(target_words):
+        chars_without_init = [char_dict.get(c, 0) for c in word[1:]] + [999]
+        target.extend(chars_without_init)
+
+    return Variable(torch.LongTensor(target).view(-1))
+
+def train_gru(gru, dataloader, epoch, char_dict, char_vectors, char_embed_size, hidden_size, num_layers=1, bidirectional=True):
+    optimizer = torch.optim.Adam(gru.parameters())
+
+    for _ in range(epoch):
+        for data in dataloader:
+            pack, words = data
+            outputs, hidden = gru(pack)
+
+            target = build_target(words, char_dict)
+
+            cost_fn = torch.nn.CrossEntropyLoss(ignore_index=999)
+
+            loss = cost_fn(outputs.data.view(-1, len(char_dict)), target)
+
+            gru.zero_grad()
+            loss.backward()
+            optimizer.step()
+            print(loss.data[0])
+
 
 def embedding_char_level(word_dict, char_dict, char_vectors, char_embed_size, embed_size=300, num_layers=1, bidirectional=True, cache_path=None):
     """
@@ -40,28 +108,34 @@ def embedding_char_level(word_dict, char_dict, char_vectors, char_embed_size, em
     """
     dataloader = get_dataloader(char_dict, char_vectors, word_dict.keys())
 
-    assert embed_size % 2 == 0, "embed_size must be an even number because it is bi-directional "
+    if bidirectional:
+        assert embed_size % 2 == 0, "embed_size must be an even number because it is bi-directional "
+        hidden_size = embed_size // 2
+    else:
+        hidden_size = embed_size
 
-    gru = torch.nn.GRU(input_size=char_embed_size, hidden_size=embed_size//2,
+    gru = GRU(input_size=char_embed_size, vocab_size=len(char_dict), hidden_size=hidden_size,
                        num_layers=num_layers, bidirectional=bidirectional)
 
+    train_gru(gru, dataloader, 50, char_dict, char_vectors, char_embed_size,
+              hidden_size, num_layers=num_layers, bidirectional=bidirectional)
+
+    char_level_embedding = building_embedding_from_gru(dataloader, embed_size, gru, word_dict)
+
+    return char_level_embedding
+
+
+def building_embedding_from_gru(dataloader, embed_size, gru, word_dict):
     char_level_embedding = torch.zeros(len(word_dict), embed_size)
-
-    words_total = []
-    current = 0
-
     for data in dataloader:
         pack, words = data
-        outputs, hidden = gru(pack)
-        hidden.view(len(words), embed_size), words
-        batch_size = len(words)
-        char_level_embedding[current:current+batch_size, :].copy_(hidden)
-        words_total.extend(words)
+        outputs, (hidden,_) = gru(pack)
+        hidden = hidden.data.permute(1, 0, 2).contiguous().view(len(words), -1)
 
-    # TODO: char_level_embedding should have same ordering as word_dict
-
-    return words_total, char_level_embedding
-
+        for i, word in enumerate(words):
+            word_id = word_dict[word]
+            char_level_embedding[word_id].copy_(hidden[i])
+    return char_level_embedding
 
 
 def get_dataloader(char_dict, char_vectors, words):
@@ -77,18 +151,15 @@ def get_dataloader(char_dict, char_vectors, words):
                 numerlized_word.append(PAD)
             else:
                 numerlized_word.append(char_vectors[char_id])
-        numerlized_words.append((torch.Tensor(numerlized_word), word))
+        numerlized_words.append((torch.stack(numerlized_word), word))
 
-    dataloader = DataLoader(numerlized_words, batch_size=3, num_workers=1,
-                            collate_fn=collate)
+    dataloader = DataLoader(numerlized_words, batch_size=128, num_workers=4,
+                            collate_fn=collate, shuffle=True)
     return dataloader
 
 
 if __name__ == "__main__":
-    words = ["hello", "bye",  "yoooooooooo", "hello", "bye",  "yoooooooooo"]
-
-    char_dict = {"h":0, "e":1, "o":2, "b":3, "l":4, "y":5}
-    char_vec = [[0.1, 0.2, 0.3],[0.3, 0.22, 0.33],[0.14, 0.21, 0.33],
-                [0.15, 0.21, 0.33],[0.155, 0.223, 0.331],[0.1512, 0.123, 0.123],[0.1512, 0.123, 0.123] ]
-
-    embedding_char_level(words, char_dict, char_vec, 3,3)
+    word_dict, _, _ = torchtext.vocab.load_word_vectors("./data/embedding/glove_word", "glove.6B",
+                                                                50)
+    char_dict, char_vec, char_size= torchtext.vocab.load_word_vectors("./data/embedding/glove_word", "glove_char.840B", 300)
+    embedding_char_level(word_dict, char_dict, char_vec, 300,300)
