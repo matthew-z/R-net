@@ -6,11 +6,12 @@ from collections import Counter
 
 from torch.nn.utils.rnn import pack_padded_sequence
 from torch.utils.data import Dataset
+from torch.utils.data import DataLoader
+
 from torchtext import vocab
 import dill
 import nltk
 import progressbar
-from r_net.embedding import embedding_char_level
 import spacy
 import torch
 import torchtext
@@ -28,9 +29,8 @@ SOS = 2
 EOS = 3
 
 
-class Example(object):
+class RawExample(object):
     pass
-
 
 def read_train_json(path):
     with open(path) as fin:
@@ -51,12 +51,12 @@ def read_train_json(path):
                 for ans in answers:
                     answer_start = int(ans["answer_start"])
                     answer_text = ans["text"]
-                    e = Example()
+                    e = RawExample()
                     e.title = title
                     e.context_id = len(context_list) - 1
                     e.question = question
                     e.question_id = question_id
-                    e.answer_start = answer_text
+                    e.answer_start = answer_start
                     e.answer_text = answer_text
                     # lines.append([title, len(context_list) - 1, question, question_id, answer_start, answer_text])
                     examples.append(e)
@@ -88,20 +88,23 @@ def read_dev_json(path):
                 c = Counter(answer_start_list)
                 most_common_answer, freq = c.most_common()[0]
                 answer_text = None
+                answer_start = None
                 if freq > 1:
                     for i, ans_start in enumerate(answer_start_list):
                         if ans_start == most_common_answer:
                             answer_text = answers[i]["text"]
+                            answer_start = answers[i]["answer_start"]
                             break
                 else:
                     answer_text = answers[random.choice(range(len(answers)))]["text"]
+                    answer_start = answers[random.choice(range(len(answers)))]["answer_start"]
 
-                e = Example()
+                e = RawExample()
                 e.title = title
                 e.context_id = len(context_list) - 1
                 e.question = question
                 e.question_id = question_id
-                e.answer_start = answer_text
+                e.answer_start = answer_start
                 e.answer_text = answer_text
                 # examples.append([title, len(context_list) - 1, question, question_id, answer_text])
                 examples.append(e)
@@ -171,9 +174,10 @@ def create_padded_batch(max_length=5000, batch_first=False, sort=False, pack=Fal
 def get_word_counter(*seqs):
     counter = {}
     for seq in seqs:
-        for word in seq:
-            counter.setdefault(word, 0)
-            counter[word] += 1
+        for sentence in seq:
+            for word in sentence:
+                counter.setdefault(word, 0)
+                counter[word] += 1
     return counter
 
 
@@ -184,40 +188,97 @@ def truncate_word_counter(word_counter, max_symbols):
 
 
 class SQuAD(Dataset):
-    def __init__(self, path, word_embedding, char_embedding, embedding_cache_root=None, split="train",
-                 tokenization="nltk", insert_start=SOS, insert_end=EOS, char_level=True):
+    def __init__(self, path, word_embedding=None, char_embedding=None, embedding_cache_root=None, split="train",
+                 tokenization="nltk", insert_start="<SOS>", insert_end="<EOS>", char_level=True):
+        self.insert_start = insert_start
+        self.insert_end = insert_end
         self._set_tokenizer(tokenization)
-        examples_raw, context_with_counter = read_train_json(path)
+        self.examples_raw, context_with_counter = read_train_json(path)
         self.embedding_cache_root = embedding_cache_root
-        self.tokenized_context = [self.tokenizer(doc) for doc, count in context_with_counter]
-        self.tokenized_question = [self.tokenizer(e.question) for e in examples_raw]
+        tokenized_context = [self.tokenizer(doc) for doc, count in context_with_counter]
+        tokenized_question = [self.tokenizer(e.question) for e in self.examples_raw]
 
-        word_counter = get_word_counter(self.tokenized_context, self.tokenized_question)
-        self._build_vocab(word_counter, word_embedding, char_embedding)
+        word_counter = get_word_counter(tokenized_context, tokenized_question)
+
+        if word_embedding is None:
+            word_embedding = ("./data/embedding/word", "glove.840B", 300)
+
+        self.itos, self.stoi, self.wv_vec = self._build_vocab(word_counter, word_embedding, char_embedding)
+
+        self.numeralized_question = [self._numeralize_seq(question) for question in tokenized_question]
+        self.numeralized_context = [self._numeralize_seq(context) for context in tokenized_context]
+
+    def _numeralize_seq(self, seq):
+        if self.insert_start is not None:
+            result = [self.insert_start]
+        else:
+            result = []
+        for word in seq:
+            result.append(self.stoi.get(word, 0))
+        if self.insert_end is not None:
+            result.append(self.insert_end)
+        return result
+
+    def __getitem__(self, idx):
+        question = self.numeralized_question[idx]
+        context_id = self.examples_raw[idx].context_id
+        context = self.numeralized_context[context_id]
+        answer_start = self.examples_raw[idx].answer_start
+        answer_end = self.examples_raw[idx].answer_start
+
+        return question, context, answer_start, answer_end
+
+    def __len__(self):
+        return len(self.examples_raw)
 
     def read_embedding(self, word_embedding):
         root, word_type, dim = word_embedding
         wv_dict, wv_vectors, wv_size = vocab.load_word_vectors(root, word_type, dim)
         return wv_dict, wv_vectors, wv_size
 
-    def _build_vocab(self, word_counter, word_embedding, char_embedding=None):
+    def _build_vocab(self, word_counter, word_embedding, char_embedding=None, specials=None):
+        """
+        :param word_counter: counter of words in dataset
+        :param word_embedding: word_embedding config: (root, word_type, dim)
+        :param char_embedding: char_embedding config: (root, word_type, dim)
+        :param specials: special tokens in vocab, such as UNK, PAD, SOS, EOS
+        :return: itos, stoi, vectors
+        """
+
         wv_dict, wv_vectors, wv_size = self.read_embedding(word_embedding)
 
-        # TODO create word dict of data and feed into char_level embedding.
+        # TODO: create word dict of data and feed into char_level embedding.
+        #
+        #
+        # if char_embedding is not None:
+        #     char_dict, char_vectors, char_vec_size = self.read_embedding(char_embedding)
+        #     char_level_embedding = embedding_char_level(word_counter.keys(), char_dict, char_vectors,
+        #                                                 cache_path=self.embedding_cache_root)
 
+        # special tokens
+        if specials is None:
+            specials = ["<UNK>", "<PAD>", "<SOS>", "<EOS>"]
 
-        if char_embedding is not None:
-            char_dict, char_vectors, char_vec_size = self.read_embedding(char_embedding)
-            char_level_embedding = embedding_char_level(word_counter.keys(), char_dict, char_vectors,
-                                                        cache_path=self.embedding_cache_root)
-
+        # embedding size = glove vector size
         embed_size = wv_vectors.size(1)
         print("word embedding size: %d" % embed_size)
 
-        wv_size = len(word_counter)
-        self.itos = []
-        self.stoi = {}
-        self.vectors = torch.zeros([wv_size, embed_size])
+        # build itos and stoi
+        words_in_dataset = sorted(word_counter.keys(), key=lambda x: word_counter[x], reverse=True)
+        itos = specials[:]
+        stoi = {}
+
+        itos.extend(words_in_dataset)
+        for idx, word in enumerate(words_in_dataset):
+            stoi[word] = idx
+
+        # build vectors
+        vectors = torch.zeros([len(itos), embed_size])
+        for word, idx in stoi.items():
+            idx_in_glove = wv_dict.get(word, None)
+            if idx_in_glove is not None:
+                vectors[idx, :wv_size].copy_(wv_vectors[idx_in_glove])
+        return itos, stoi, vectors
 
     def _set_tokenizer(self, tokenization):
         if tokenization == "nltk":
@@ -231,6 +292,18 @@ class SQuAD(Dataset):
 
             self.tokenizer = spacy_tokenizer
 
-        raise ValueError("Incorrect tokenization method %s" % tokenization)
+        else:
+            raise ValueError("Incorrect tokenizing method %s" % tokenization)
+
+    def get_dataloder(self, batch_size, train, num_workers=4):
+        # TODO: Need padding function
+        return DataLoader(batch_size=batch_size, shuffle=train)
+
+
 if __name__ == "__main__":
     train_json = "./data/squad/train-v1.1.json"
+    dataset = SQuAD(train_json)
+
+
+
+
