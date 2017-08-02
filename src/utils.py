@@ -8,8 +8,9 @@ from collections import Counter
 
 from torchtext import vocab
 
-from preprocess import RawExample
 
+class RawExample(object):
+    pass
 
 def make_dirs(name):
     """helper function for python 2 and 3 to call os.makedirs()
@@ -153,7 +154,7 @@ def tokenized_by_answer(context, answer_text, answer_start, tokenizer):
     Locate the answer token-level position after tokenizing as the original location is based on
     char-level
 
-    snippet from: https://github.com/haichao592/squad-tf/blob/master/preprocess.py
+    snippet from: https://github.com/haichao592/squad-tf/blob/master/dataset.py
 
     :param context:  passage
     :param answer_text:     context/passage
