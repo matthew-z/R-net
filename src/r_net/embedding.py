@@ -6,7 +6,6 @@ from torch.autograd import Variable
 from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
 from torch.utils.data import DataLoader
 
-
 class GRU(torch.nn.Module):
     """ used to train char-level embedding"""
 
