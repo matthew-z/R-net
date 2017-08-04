@@ -8,7 +8,8 @@ from torch.nn.utils.rnn import pack_padded_sequence
 from torch.utils.data import DataLoader
 from torch.utils.data import Dataset
 from collections import defaultdict
-from utils import read_train_json, get_counter, read_dev_json, read_embedding, tokenized_by_answer
+from utils import read_train_json, get_counter, read_dev_json, read_embedding, tokenized_by_answer, sort_idx
+
 
 def padding(seqs, pad, batch_first=False):
     """
@@ -17,6 +18,7 @@ def padding(seqs, pad, batch_first=False):
     :return: seq_length x Batch x dim
     """
     lengths = [len(s) for s in seqs]
+
     seqs = [torch.Tensor(s) for s in seqs]
     batch_length = max(lengths)
     seq_tensor = torch.LongTensor(batch_length, len(seqs)).fill_(pad)
@@ -27,6 +29,47 @@ def padding(seqs, pad, batch_first=False):
         seq_tensor = seq_tensor.t()
     return (seq_tensor, lengths)
 
+
+class Documents(object):
+    """
+        Helper class for organizing and sorting seqs
+    """
+
+    def __init__(self, tensor, tensor_with_new_idx, lengths):
+        sorted_lengths_tensor, self.sorted_idx = torch.sort(torch.Tensor(lengths))
+
+        self.tensor = tensor.select_index(dim=0, index=self.sorted_idx)
+        self.tensor_new_dx = tensor_with_new_idx.select_index(dim=0, index=self.sorted_idx)
+
+        self.lengths = sorted_lengths_tensor.data
+        self.original_idx = sort_idx(self.sorted_idx)
+
+    def to_variable(self, cuda=False):
+        if cuda:
+            self.tensor = Variable(self.tensor).cuda()
+            self.tensor_new_dx = Variable(self.tensor_new_dx).cuda()
+        else:
+            self.tensor = Variable(self.tensor)
+            self.tensor_new_dx = Variable(self.tensor_new_dx)
+
+
+class Words(object):
+    """
+    Helper class for organizing seqs
+    """
+
+    def __init__(self, distinct_words_tensor, words_lengths, words):
+        self.words_tensor = distinct_words_tensor
+        self.words_lengths = words_lengths
+        self.words = words
+
+    def to_variable(self, cuda=False):
+        if cuda:
+            self.words_tensor = Variable(self.words_tensor).cuda()
+        else:
+            self.words_tensor = Variable(self.words_tensor)
+
+
 class SQuAD(Dataset):
     def __init__(self, path, word_embedding=None, char_embedding=None, embedding_cache_root=None, split="train",
                  tokenization="nltk", insert_start="<SOS>", insert_end="<EOS>",
@@ -34,8 +77,6 @@ class SQuAD(Dataset):
 
         self.UNK = 0
         self.PAD = 1
-        self.SOS = 2
-        self.EOS = 3
 
         if embedding_cache_root is None:
             embedding_cache_root = "./data/embedding"
@@ -49,11 +90,16 @@ class SQuAD(Dataset):
             char_embedding = (char_embedding_root, "glove_char.840B", 300)
 
         self.specials = ["<UNK>", "<PAD>"]
+
+        self.specials_idx_set = {self.UNK, self.PAD}
         if insert_start is not None:
+            self.SOS = 2
             self.specials.append(insert_start)
+            self.specials_idx_set.add(self.SOS)
         if insert_end is not None:
+            self.EOS = 3
             self.specials.append(insert_end)
-        self.specials_set = set(self.specials)
+            self.specials_idx_set.add(self.EOS)
 
         self.insert_start = insert_start
         self.insert_end = insert_end
@@ -122,11 +168,12 @@ class SQuAD(Dataset):
         else:
             context = self.numeralized_context[self.examples_raw[idx].context_id]
 
-        distinct_words = set()
+        distinct_words = set([self.stoi[w] for w in self.specials])
         for word_idx in question + context:
             if word_idx in distinct_words:
                 continue
             distinct_words.add(word_idx)
+
         answer_text = self.examples_raw[idx].answer_text
         question_id = self.examples_raw[idx].question_id
 
@@ -189,16 +236,31 @@ class SQuAD(Dataset):
 
             def spacy_tokenizer(seq):
                 return [w.text for w in spacy_en(seq)]
+
             self.tokenizer = spacy_tokenizer
         else:
             raise ValueError("Invalid tokenizing method %s" % tokenization)
 
-    def create_collate_fn(self, batch_first=False):
+    def create_collate_fn(self, batch_first=True):
 
         def word_to_chars(word_idx):
-            if word_idx in self.specials_set:
+            if word_idx in self.specials_idx_set:
                 return [word_idx]
             return [self.ctoi[char] for char in self.itos[word_idx]]
+
+        def get_new_idx(seq_tensor, word_new_idx, batch_first=True):
+            result = seq_tensor.new(seq_tensor.size())
+            if not batch_first:
+                seq_tensor = seq_tensor.t()
+
+            for i, seq in enumerate(seq_tensor):
+                for j, word_idx in enumerate(seq):
+                    if word_idx not in word_new_idx:
+                        print("cannot find %s" % word_idx)
+                    new_idx = word_new_idx[word_idx]
+                    result[i][j] = new_idx
+
+            return result
 
         def collate(examples):
             if self.split == "train":
@@ -210,23 +272,35 @@ class SQuAD(Dataset):
             words = set()
             for word_set in distinct_words_sets:
                 words |= word_set
-            words = list(words)
-            words_in_chars = [word_to_chars(word_idx) for word_idx in words]
-            words_in_chars_tensor = padding(words_in_chars, self.PAD)
+            words = sorted(list(words), reverse=True,
+                           key=lambda x: len(word_to_chars(x)))
+            word_to_new_idx = {word: i for i, word in enumerate(words)}
 
-            questions_tensor = padding(questions, self.PAD)
-            contexts_tensor = padding(contexts, self.PAD)
+            words_in_chars = [word_to_chars(word_idx) for word_idx in words]
+            distinct_words_tensor, words_lengths = padding(words_in_chars, self.PAD, batch_first=batch_first)
+
+            questions_tensor, question_lengths = padding(questions, self.PAD, batch_first=batch_first)
+            question_tensor_new = get_new_idx(questions_tensor, word_to_new_idx)
+
+            contexts_tensor, context_lengths = padding(contexts, self.PAD, batch_first=batch_first)
+            contexts_tensor_new = get_new_idx(contexts_tensor, word_to_new_idx)
+
+            words = Words(distinct_words_tensor, words_lengths, words)
+            questions = Documents(questions_tensor, question_tensor_new, question_lengths)
+            contexts = Documents(contexts_tensor, contexts_tensor_new, context_lengths)
+
             if self.split == "train":
                 answers_positions = torch.LongTensor(answers_positions)
-                return question_ids, words_in_chars_tensor, questions_tensor, contexts_tensor, answers_positions, answer_texts
+                return question_ids, words, questions, contexts, answers_positions, answer_texts
+
             else:
-                return question_ids, words_in_chars_tensor, questions_tensor, contexts_tensor
+                return question_ids, words, questions, contexts
 
         return collate
 
-    def get_dataloader(self, batch_size, num_workers=4):
-        return DataLoader(self, batch_size=batch_size, shuffle=self.split == "train",
-                          collate_fn=self.create_collate_fn(), num_workers=num_workers)
+    def get_dataloader(self, batch_size, num_workers=4, shuffle=True, batch_first=True):
+        return DataLoader(self, batch_size=batch_size, shuffle=shuffle,
+                          collate_fn=self.create_collate_fn(batch_first), num_workers=num_workers)
 
 
 if __name__ == "__main__":

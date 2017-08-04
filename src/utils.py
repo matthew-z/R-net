@@ -6,6 +6,7 @@ import errno
 from argparse import ArgumentParser
 from collections import Counter
 
+import torch
 from torchtext import vocab
 
 
@@ -193,3 +194,18 @@ def read_embedding(word_embedding):
     root, word_type, dim = word_embedding
     wv_dict, wv_vectors, wv_size = vocab.load_word_vectors(root, word_type, dim)
     return wv_dict, wv_vectors, wv_size
+
+
+def get_rnn(rnn_type):
+    rnn_type = rnn_type.lower()
+    if rnn_type == "gru":
+        network = torch.nn.GRU
+    elif rnn_type == "lstm":
+        network = torch.nn.LSTM
+    else:
+        raise ValueError("Invalid RNN type %s" % rnn_type)
+    return network
+
+
+def sort_idx(seq):
+    return sorted(range(seq.size(0)), key=lambda x:seq.data[x])
