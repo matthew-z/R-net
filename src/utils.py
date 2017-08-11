@@ -208,4 +208,9 @@ def get_rnn(rnn_type):
 
 
 def sort_idx(seq):
-    return sorted(range(seq.size(0)), key=lambda x:seq.data[x])
+    """
+
+    :param seq: variable
+    :return:
+    """
+    return sorted(range(seq.size(0)), key=lambda x:seq[x])

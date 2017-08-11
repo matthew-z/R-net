@@ -4,7 +4,6 @@ import nltk
 import spacy
 import torch
 from torch.autograd import Variable
-from torch.nn.utils.rnn import pack_padded_sequence
 from torch.utils.data import DataLoader
 from torch.utils.data import Dataset
 from collections import defaultdict
@@ -36,12 +35,13 @@ class Documents(object):
     """
 
     def __init__(self, tensor, tensor_with_new_idx, lengths):
-        sorted_lengths_tensor, self.sorted_idx = torch.sort(torch.Tensor(lengths))
+        self.original_lengths = lengths
+        sorted_lengths_tensor, self.sorted_idx = torch.sort(torch.LongTensor(lengths), dim=0, descending=True)
 
-        self.tensor = tensor.select_index(dim=0, index=self.sorted_idx)
-        self.tensor_new_dx = tensor_with_new_idx.select_index(dim=0, index=self.sorted_idx)
+        self.tensor = tensor.index_select(dim=0, index=self.sorted_idx)
+        self.tensor_new_dx = tensor_with_new_idx.index_select(dim=0, index=self.sorted_idx)
 
-        self.lengths = sorted_lengths_tensor.data
+        self.lengths = list(sorted_lengths_tensor)
         self.original_idx = sort_idx(self.sorted_idx)
 
     def to_variable(self, cuda=False):
@@ -51,6 +51,14 @@ class Documents(object):
         else:
             self.tensor = Variable(self.tensor)
             self.tensor_new_dx = Variable(self.tensor_new_dx)
+
+    def restore_original_order(self, sorted_tensor):
+        return sorted_tensor.index_select(dim=0, index=self.original_idx)
+
+    def to_sorted_order(self, original_tensor):
+        return original_tensor.index_select(dim=0, index=self.sorted_idx)
+
+
 
 
 class Words(object):
@@ -129,14 +137,14 @@ class SQuAD(Dataset):
 
     def tokenize_context_with_answer(self, context_with_counter):
         tokenized_contexts = []
-        ansewrs_postion = []
+        answers_positions = []
         for example in self.examples_raw:
             context, _ = context_with_counter[example.context_id]
             tokenized_context, answer_start, answer_end = tokenized_by_answer(context, example.answer_text,
                                                                               example.answer_start, self.tokenizer)
             tokenized_contexts.append(tokenized_context)
-            ansewrs_postion.append((answer_start, answer_end))
-        return tokenized_contexts, ansewrs_postion
+            answers_positions.append((answer_start, answer_end))
+        return tokenized_contexts, answers_positions
 
     def _char_level_numeralize(self, tokenized_docs):
         result = []
@@ -186,6 +194,9 @@ class SQuAD(Dataset):
     def __len__(self):
         return len(self.examples_raw)
 
+    def get_unk(self):
+        return self.UNK
+
     def _build_vocab(self, counter, embedding_config):
         """
         :param counter: counter of words in dataset
@@ -205,10 +216,7 @@ class SQuAD(Dataset):
 
         itos = self.specials[:]
 
-        def get_unk():
-            return self.UNK
-
-        stoi = defaultdict(get_unk)
+        stoi = defaultdict(self.get_unk)
 
         itos.extend(words_in_dataset)
         for idx, word in enumerate(itos):
@@ -299,40 +307,9 @@ class SQuAD(Dataset):
         return collate
 
     def get_dataloader(self, batch_size, num_workers=4, shuffle=True, batch_first=True):
+        """
+
+        :param batch_first:  Currently, it must be True as nn.Embedding requires batch_first input
+        """
         return DataLoader(self, batch_size=batch_size, shuffle=shuffle,
                           collate_fn=self.create_collate_fn(batch_first), num_workers=num_workers)
-
-
-if __name__ == "__main__":
-    def test_train_data():
-        train_json = "./data/squad/train-v1.1.json"
-        dataset = SQuAD(train_json)
-        dataloader = dataset.get_dataloader(5, True)
-
-        for batch in dataloader:
-            words_in_chars, questions_tensor, contexts_tensor, answers, answer_text = batch
-
-            for i, row in enumerate(answers):
-                start, end = row
-                print(start, end)
-                print(" ".join([dataset.itos[idx] for idx in contexts_tensor[0][start:end + 1, i]]))
-                print(answer_text[i])
-
-                print()
-
-
-    def test_dev_data():
-        dev_json = "./data/squad/dev-v1.1.json"
-        dataset = SQuAD(dev_json, split="dev")
-        dataloader = dataset.get_dataloader(5, True)
-
-        for batch in dataloader:
-            question_ids, words_in_chars, questions, contexts = batch
-
-            questions_tensor, lengths = questions
-            for i, l in enumerate(lengths):
-                print(question_ids[i])
-                print(" ".join([dataset.itos[idx] for idx in questions_tensor[:l, i]]))
-
-
-    test_dev_data()

@@ -22,13 +22,12 @@ class CharLevelEmbedding(nn.Module):
         if bidirectional:
             self.projection_layer = nn.Linear(output_dim * 2, output_dim)
 
-    def forward(self, words_tensor):
+    def forward(self, words_tensor, lengths):
         """
 
         :param words_tensor: tuple of (words_tensor (B x T), lengths)
         :return:
         """
-        words_tensor, lengths = words_tensor
         embed = self.embedding(words_tensor)
         embed_pack = pack_padded_sequence(embed, lengths, batch_first=True)
         outputs, hidden = self.network(embed_pack)
