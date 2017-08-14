@@ -32,6 +32,8 @@ def padding(seqs, pad, batch_first=False):
 class Documents(object):
     """
         Helper class for organizing and sorting seqs
+
+        should be batch_first for embedding
     """
 
     def __init__(self, tensor, tensor_with_new_idx, lengths):
@@ -42,21 +44,30 @@ class Documents(object):
         self.tensor_new_dx = tensor_with_new_idx.index_select(dim=0, index=self.sorted_idx)
 
         self.lengths = list(sorted_lengths_tensor)
-        self.original_idx = sort_idx(self.sorted_idx)
+        self.original_idx = torch.LongTensor(sort_idx(self.sorted_idx))
+
+        self.mask_original = torch.zeros(*self.tensor.size())
+        for i, length in enumerate(self.original_lengths):
+            self.mask_original[i][:length].fill_(1)
 
     def to_variable(self, cuda=False):
+        self.tensor = Variable(self.tensor)
+        self.tensor_new_dx = Variable(self.tensor_new_dx)
+        self.sorted_idx = Variable(self.sorted_idx)
+        self.original_idx = Variable(self.original_idx)
+        self.mask_original = Variable(self.mask_original)
         if cuda:
-            self.tensor = Variable(self.tensor).cuda()
-            self.tensor_new_dx = Variable(self.tensor_new_dx).cuda()
-        else:
-            self.tensor = Variable(self.tensor)
-            self.tensor_new_dx = Variable(self.tensor_new_dx)
+            self.tensor = self.tensor.cuda()
+            self.tensor_new_dx = self.tensor_new_dx.cuda()
+            self.sorted_idx = self.sorted_idx.cuda()
+            self.original_idx = self.original_idx.cuda()
+            self.mask_original = self.mask_original.cuda()
 
-    def restore_original_order(self, sorted_tensor):
-        return sorted_tensor.index_select(dim=0, index=self.original_idx)
+    def restore_original_order(self, sorted_tensor, batch_dim):
+        return sorted_tensor.index_select(dim=batch_dim, index=self.original_idx)
 
-    def to_sorted_order(self, original_tensor):
-        return original_tensor.index_select(dim=0, index=self.sorted_idx)
+    def to_sorted_order(self, original_tensor, batch_dim):
+        return original_tensor.index_select(dim=batch_dim, index=self.sorted_idx)
 
 
 

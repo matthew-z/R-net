@@ -3,7 +3,8 @@ from torch import nn
 from torch.nn import functional as F
 
 class PairAttentionLayer(nn.Module):
-    def __init__(self, question_size, passage_size, paired_hidden_size, attn_size=75, batch_first=True):
+    def __init__(self, question_size, passage_size, paired_hidden_size,
+                 attn_size=75, batch_first=False, mode="LSTM"):
         super().__init__()
         self.question_linear = nn.Linear(question_size, attn_size, bias=False)
         self.passage_linear = nn.Linear(passage_size, attn_size, bias=False)
@@ -14,25 +15,30 @@ class PairAttentionLayer(nn.Module):
     def forward(self, question, passage_word, last_output, question_mask=None):
 
         if not self.batch_first:
-            question = question.transpose(0, 1)
-            passage_word= passage_word.transpose(0, 1)
-            last_output = last_output.transpose(0, 1)
+            question = question.transpose(0, 1)   # batch * question_len * n
+            passage_word= passage_word.transpose(0, 1) # batch * 1 * n
+            last_output = last_output.transpose(0, 1)  # batch * 1 * n
             question_mask = question_mask.transpose(0, 1) # batch * seq * 1
+        question_mask= question_mask.unsqueeze(2)
+
+        curr_batch_size = passage_word.size(0)
+        if question.size(0) != curr_batch_size:
+            question = question[:curr_batch_size]
+            last_output = last_output[:curr_batch_size]
+            question_mask = question_mask[:curr_batch_size]
 
         score_unnormalized = self.score_linear(self.question_linear(question)
                                                + self.passage_linear(passage_word)
                                                + self.hidden_linear(last_output))
-
         if question_mask is not None:
-            score_unnormalized *= question_mask
+            score_unnormalized = score_unnormalized * question_mask
 
         n_batch, question_len, _ = question.size()
-
         scores = (F.softmax(score_unnormalized.view(-1, question_len))
                   .view(n_batch, question_len, 1))
-        context = torch.bmm(question, scores)
+        context = torch.bmm(scores.transpose(1,2), question)
 
-        if self.batch_first:
+        if not self.batch_first:
             return context.transpose(0, 1)
 
         return context

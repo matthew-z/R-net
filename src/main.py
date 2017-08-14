@@ -6,6 +6,7 @@ import time
 from model import WordEmbedding, RNet
 
 import pickle
+from torch.nn.utils.rnn import pad_packed_sequence, pack_padded_sequence
 
 
 def main():
@@ -35,9 +36,11 @@ def main():
 
     sentence_encoding_config = {"hidden_size": 75, "num_layers": 3,
                                 "bidirectional": True,
-                                "dropout": 0.2}
+                                "dropout": 0.2, }
 
-    pair_encoding_config = {}
+    pair_encoding_config = {"hidden_size": 75, "num_layers": 3, "bidirectional": True,
+                            "dropout": 0.2, "gated":True, "mode":"GRU",
+                            "rnn_cell": torch.nn.GRUCell, "attn_size":75, "residual":False}
     self_matching_config= {}
     pointer_config = {}
 
@@ -59,3 +62,16 @@ def main():
 
 if __name__ == "__main__":
     main()
+    # import random
+    # inputs = Variable(torch.randn(20, 5, 50))
+    # lengths = []
+    # for _ in range(5):
+    #     lengths.append(random.randint(1, 16))
+    #
+    # lengths.sort(reverse=True)
+    # pack = pack_padded_sequence(inputs, lengths)
+    #
+    # rnn = torch.nn.RNN(50, 100)
+    #
+    # rnn(pack)
+

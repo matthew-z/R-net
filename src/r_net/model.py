@@ -2,20 +2,31 @@ import torch
 from torch import nn
 
 from embedding import CharLevelEmbedding
-from recurrent import RNN
+from recurrent import RNN, AttentionEncoder, AttentionEncoderCell
 from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
 from dataset import Documents, Words
+from attention import PairAttentionLayer
 
-class PairedEncoding(nn.Module):
-    def __init__(self, config):
+class PairEncoder(nn.Module):
+    def __init__(self, question_embed_size, passage_embed_size, config,
+                 cell_factory=AttentionEncoderCell):
         super().__init__()
+        self.pair_encoder = AttentionEncoder(
+            cell_factory, question_embed_size,passage_embed_size,
+            config["hidden_size"], PairAttentionLayer,
+            bidirectional=config["bidirectional"], mode=config["mode"], attn_size=config["attn_size"],
+            num_layers=config["num_layers"], dropout=config["dropout"],
+            residual=config["residual"], gated=config["gated"],
+            rnn_cell=config["rnn_cell"]
+        )
 
 
-    def forward(self, question_padded, context_padded):
-        pass
+    def forward(self, questions, question_mark, passage):
+        inputs = (passage, questions, question_mark)
+        return self.pair_encoder(inputs)
 
 
-class SelfMatching(nn.Module):
+class SelfMatchingEncoder(nn.Module):
     pass
 
 
@@ -80,16 +91,16 @@ class SentenceEncoding(nn.Module):
                                     bidirectional=config["bidirectional"],
                                     dropout=config["dropout"])
 
-        self.context_encoder = RNN(input_size, config["hidden_size"],
+        self.passage_encoder = RNN(input_size, config["hidden_size"],
                                    num_layers=config["num_layers"],
                                    bidirectional=config["bidirectional"],
                                    dropout=config["dropout"])
 
     def forward(self, question_pack, context_pack):
         question_outputs, _ = self.question_encoder(question_pack)
-        context_outputs, _ = self.context_encoder(context_pack)
+        passage_outputs, _ = self.passage_encoder(context_pack)
 
-        return question_outputs, context_outputs
+        return question_outputs, passage_outputs
 
 
 class RNet(nn.Module):
@@ -99,23 +110,43 @@ class RNet(nn.Module):
         self.embedding = WordEmbedding(char_embedding_config, word_embedding_config)
         self.sentence_encoding = SentenceEncoding(self.embedding.embedding_size, sentence_encoding_config)
 
-    def forward(self, distinct_words: Words, question: Documents , context: Documents):
+        sentence_encoding_size = (sentence_encoding_config["hidden_size"]
+                                  * (2 if sentence_encoding_config["bidirectional"]
+                                     else 1))
+        self.pair_encoder = PairEncoder(sentence_encoding_size,
+                                        sentence_encoding_size,
+                                        pair_encoding_config)
+
+        # self.self_matching_encoder = PairEncoder(pair_encoding_config["hidden_size"],
+        #                                          pair_encoding_config["hidden_size"], self_matching_config)
+
+    def forward(self, distinct_words: Words, question: Documents, passage: Documents):
         # embed words using char-level and word-level and concat them
-        embedded_question, embedded_context = self.embedding(distinct_words, question, context)
+        embedded_question, embedded_passage = self.embedding(distinct_words, question, passage)
 
         question_pack = pack_padded_sequence(embedded_question, question.lengths, batch_first=True)
-        context_pack = pack_padded_sequence(embedded_context, context.lengths, batch_first=True)
+        passage_pack = pack_padded_sequence(embedded_passage, passage.lengths, batch_first=True)
 
-        question_encoded_pack = self.sentence_encoding(question_pack, context_pack)
-        context_encoded_pack = self.sentence_encoding(question_pack, context_pack)
+        question_encoded_pack, passage_encoded_pack = self.sentence_encoding(question_pack, passage_pack)
 
         # (Seq, Batch, encode_size), lengths
         question_encoded_padded_sorted, _ = pad_packed_sequence(question_encoded_pack)
-        context_encoded_padded_sorted, _ = pad_packed_sequence(context_encoded_pack)
+        # passage_encoded_padded_sorted, _ = pad_packed_sequence(passage_encoded_pack)
 
         # restore unsorted order
-        question_encoded_padded_original = question.restore_original_order(question_encoded_padded_sorted)
-        context_encoded_padded_original = context.restore_original_order(context_encoded_padded_sorted)
+        question_encoded_padded_original = question.restore_original_order(question_encoded_padded_sorted, batch_dim=1)
+        # question and context has same ordering
+        question_encoded_padded_in_passage_sorted_order = passage.to_sorted_order(question_encoded_padded_original, batch_dim=1)
+        question_mask_in_passage_order = passage.to_sorted_order(question.mask_original, batch_dim=0).transpose(0, 1)
+        paired_passage = self.pair_encoder(question_encoded_padded_in_passage_sorted_order,
+                                           question_mask_in_passage_order,
+                                           passage_encoded_pack)
+
+        print(paired_passage)
+
+
+
+
 
 
 
