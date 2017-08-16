@@ -110,7 +110,7 @@ class AttentionEncoderCell(StackedCell):
             hidden_for_attention = hidden
         hidden_for_attention = hidden_for_attention[0:1]
 
-        context = self.attention(context, inputs, hidden_for_attention, context_mask)
+        context = self.attention(context, inputs, hidden_for_attention, key_mask=context_mask)
         inputs = torch.cat([context, inputs], dim=context.dim()-1)
         if self.gated:
             inputs = inputs * self.gate(inputs)

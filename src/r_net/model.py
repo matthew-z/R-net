@@ -115,8 +115,9 @@ class SentenceEncoding(nn.Module):
 
 class PointerNetwork(nn.Module):
     def __init__(self, question_size, passage_size, hidden_size, attn_size=None,
-                 cell_type=nn.GRUCell, num_layers=True, dropout=0, residual=False, **kwargs):
+                 cell_type=nn.GRUCell, num_layers=1, dropout=0, residual=False, **kwargs):
         super().__init__()
+        self.num_layers = num_layers
         if attn_size is None:
             attn_size = question_size
 
@@ -127,14 +128,17 @@ class PointerNetwork(nn.Module):
         self.passage_pooling = AttentionPooling(key_size=passage_size,
                                                 query_size=question_size, attn_size=attn_size)
         self.V_q = nn.Parameter(torch.randn(1, 1, v_q_size), requires_grad=True)
-        self.cell = StackedCell(question_size, hidden_size, num_layers=num_layers,
+        self.cell = StackedCell(question_size, question_size, num_layers=num_layers,
                                 dropout=dropout, rnn_cell=cell_type, residual=residual, **kwargs)
 
     def forward(self, question_pad, question_mask, passage_pad, passage_mask):
-        hidden = self.question_pooling(question_pad, self.V_q, keu_mask=question_mask)  # 1 x batch x n
+        hidden = self.question_pooling(question_pad, self.V_q,
+                                       key_mask=question_mask, broadcast_key=True)  # 1 x batch x n
+
+        hidden = hidden.expand([self.num_layers, hidden.size(1), hidden.size(2)])
 
         inputs, ans_begin = self.passage_pooling(passage_pad, hidden, key_mask=passage_mask, return_key_scores=True)
-        _, hidden = self.cell(inputs, hidden)
+        _, hidden = self.cell(inputs.squeeze(0), hidden)
         _, ans_end = self.passage_pooling(passage_pad, hidden, key_mask=passage_mask, return_key_scores=True)
 
         return ans_begin, ans_end
@@ -186,7 +190,7 @@ class RNet(nn.Module):
         print(self_matched_passage_pack)
         begin, end = self.pointer_output(question_pad_in_passage_sorted_order,
                                          question_mask_in_passage_sorted_order,
-                                         pad_packed_sequence(self_matched_passage_pack),
+                                         pad_packed_sequence(self_matched_passage_pack)[0],
                                          passage.to_sorted_order(passage.mask_original, batch_dim=0).transpose(0, 1))
         return begin, end
 

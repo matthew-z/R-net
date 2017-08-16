@@ -1,12 +1,10 @@
 import os
+import pickle
+import time
 
 import torch
-from torch.autograd import Variable
-import time
-from model import WordEmbedding, RNet
 
-import pickle
-from torch.nn.utils.rnn import pad_packed_sequence, pack_padded_sequence
+from trainer import trainer
 
 
 def main():
@@ -48,34 +46,9 @@ def main():
 
     pointer_config = {"hidden_size": 75, "num_layers": 3,"dropout": 0.2,"residual": False, "rnn_cell": torch.nn.GRUCell}
 
-    model = RNet(char_embedding_config, word_embedding_config,sentence_encoding_config,
-                 pair_encoding_config, self_matching_config, pointer_config)
-
-    for batch in dataloader:
-        question_ids, words, questions, contexts, answers, answers_texts = batch
-
-        words.to_variable()
-        questions.to_variable()
-        contexts.to_variable()
-
-        predict = model(words, questions, contexts)
-        break
-
-    print("finished in %f seconds" % (time.time() - start_time))
+    trainer(char_embedding_config, dataloader, pair_encoding_config, pointer_config, self_matching_config,
+            sentence_encoding_config, start_time, word_embedding_config)
 
 
 if __name__ == "__main__":
     main()
-    # import random
-    # inputs = Variable(torch.randn(20, 5, 50))
-    # lengths = []
-    # for _ in range(5):
-    #     lengths.append(random.randint(1, 16))
-    #
-    # lengths.sort(reverse=True)
-    # pack = pack_padded_sequence(inputs, lengths)
-    #
-    # rnn = torch.nn.RNN(50, 100)
-    #
-    # rnn(pack)
-

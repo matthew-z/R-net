@@ -33,7 +33,7 @@ class PairAttentionLayer(AttentionEncoding):
         self.score_linear = nn.Linear(attn_size, 1, bias=False)
         self.batch_first = batch_first
 
-    def forward(self, keys, query1, query2, key_mask=None):
+    def forward(self, keys, query1, query2, values=None, key_mask=None, return_key_scores=False):
 
         if not self.batch_first:
             keys = keys.transpose(0, 1)  # batch * seq_len * n
@@ -48,10 +48,22 @@ class PairAttentionLayer(AttentionEncoding):
             query2 = query2[:curr_batch_size]
             key_mask = key_mask[:curr_batch_size]
 
+        if values is None:
+            values = keys
+
         score_unnormalized = self.score_linear(F.tanh(self.key_linear(keys)
                                                       + self.query1_linear(query1)
                                                       + self.query2_linear(query2)))
-        return self._calculate_context(keys, key_mask, score_unnormalized)
+        scores = self._calculate_context(keys, key_mask, score_unnormalized)
+        # TODO: check dim order
+
+        context = torch.bmm(scores.transpose(1, 2), values)
+        if not self.batch_first:
+            context = context.transpose(0, 1)
+
+        if return_key_scores:
+            return context, scores
+        return context
 
 
 class AttentionPooling(AttentionEncoding):
@@ -62,7 +74,7 @@ class AttentionPooling(AttentionEncoding):
         self.score_linear = nn.Linear(attn_size, 1, bias=False)
         self.batch_first = batch_first
 
-    def forward(self, keys, query, key_mask=None, values=None, return_key_scores=False):
+    def forward(self, keys, query, key_mask=None, values=None, return_key_scores=False, broadcast_key=False):
 
         if not self.batch_first:
             keys = keys.transpose(0, 1)  # batch * seq_len * n
@@ -75,7 +87,7 @@ class AttentionPooling(AttentionEncoding):
         key_mask = key_mask.unsqueeze(2)
 
         curr_batch_size = query.size(0)
-        if keys.size(0) != curr_batch_size:
+        if keys.size(0) != curr_batch_size and not broadcast_key:
             keys = keys[:curr_batch_size]
             key_mask = key_mask[:curr_batch_size]
 
@@ -88,6 +100,7 @@ class AttentionPooling(AttentionEncoding):
         context = torch.bmm(scores.transpose(1, 2), values)
         if not self.batch_first:
             context = context.transpose(0, 1)
+            scores = scores.transpose(0, 1)
 
         if return_key_scores:
             return context, scores
