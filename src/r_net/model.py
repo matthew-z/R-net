@@ -5,7 +5,7 @@ from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
 from attention import PairAttentionLayer, AttentionPooling
 from dataset import Documents, Words
 from embedding import CharLevelEmbedding
-from recurrent import RNN, AttentionEncoder, AttentionEncoderCell
+from recurrent import RNN, AttentionEncoder, AttentionEncoderCell, StackedCell
 
 
 class PairEncoder(nn.Module):
@@ -42,10 +42,6 @@ class SelfMatchingEncoder(nn.Module):
     def forward(self, questions, question_mark, passage):
         inputs = (passage, questions, question_mark)
         return self.pair_encoder(inputs)
-
-
-class PointerNetwork(nn.Module):
-    pass
 
 
 class WordEmbedding(nn.Module):
@@ -117,6 +113,33 @@ class SentenceEncoding(nn.Module):
         return question_outputs, passage_outputs
 
 
+class PointerNetwork(nn.Module):
+    def __init__(self, question_size, passage_size, hidden_size, attn_size=None,
+                 cell_type=nn.GRUCell, num_layers=True, dropout=0, residual=False, **kwargs):
+        super().__init__()
+        if attn_size is None:
+            attn_size = question_size
+
+        # TODO: what is V_q? (section 3.4)
+        v_q_size = question_size
+        self.question_pooling = AttentionPooling(key_size=question_size,
+                                                 query_size=v_q_size, attn_size=attn_size)
+        self.passage_pooling = AttentionPooling(key_size=passage_size,
+                                                query_size=question_size, attn_size=attn_size)
+        self.V_q = nn.Parameter(torch.randn(1, 1, v_q_size), requires_grad=True)
+        self.cell = StackedCell(question_size, hidden_size, num_layers=num_layers,
+                                dropout=dropout, rnn_cell=cell_type, residual=residual, **kwargs)
+
+    def forward(self, question_pad, question_mask, passage_pad, passage_mask):
+        hidden = self.question_pooling(question_pad, self.V_q, keu_mask=question_mask)  # 1 x batch x n
+
+        inputs, ans_begin = self.passage_pooling(passage_pad, hidden, key_mask=passage_mask, return_key_scores=True)
+        _, hidden = self.cell(inputs, hidden)
+        _, ans_end = self.passage_pooling(passage_pad, hidden, key_mask=passage_mask, return_key_scores=True)
+
+        return ans_begin, ans_end
+
+
 class RNet(nn.Module):
     def __init__(self, char_embedding_config, word_embedding_config, sentence_encoding_config,
                  pair_encoding_config, self_matching_config, pointer_config):
@@ -124,17 +147,21 @@ class RNet(nn.Module):
         self.embedding = WordEmbedding(char_embedding_config, word_embedding_config)
         self.sentence_encoding = SentenceEncoding(self.embedding.embedding_size, sentence_encoding_config)
 
-        num_direction = (2 if sentence_encoding_config["bidirectional"] else 1)
+        sentence_num_direction = (2 if sentence_encoding_config["bidirectional"] else 1)
         sentence_encoding_size = (sentence_encoding_config["hidden_size"]
-                                  * num_direction)
+                                  * sentence_num_direction)
         self.pair_encoder = PairEncoder(sentence_encoding_size,
                                         sentence_encoding_size,
                                         pair_encoding_config)
 
-        num_direction = (2 if pair_encoding_config["bidirectional"] else 1)
-        self.self_matching_encoder = PairEncoder(pair_encoding_config["hidden_size"] * num_direction,
-                                                 pair_encoding_config["hidden_size"] * num_direction,
+        self_match_num_direction = (2 if pair_encoding_config["bidirectional"] else 1)
+        self.self_matching_encoder = PairEncoder(pair_encoding_config["hidden_size"] * self_match_num_direction,
+                                                 pair_encoding_config["hidden_size"] * self_match_num_direction,
                                                  self_matching_config)
+
+        question_size = sentence_num_direction * sentence_encoding_config["hidden_size"]
+        passage_size = self_match_num_direction * pair_encoding_config["hidden_size"]
+        self.pointer_output = PointerNetwork(question_size, passage_size, pointer_config["hidden_size"])
 
     def forward(self, distinct_words: Words, question: Documents, passage: Documents):
         # embed words using char-level and word-level and concat them
@@ -143,11 +170,27 @@ class RNet(nn.Module):
         passage_pack, question_pack = self._sentence_encoding(embedded_passage, embedded_question,
                                                               passage, question)
 
-        paired_passage_pack = self._pair_encode(passage, passage_pack, question, question_pack)
+        question_encoded_padded_sorted, _ = pad_packed_sequence(question_pack)  # (Seq, Batch, encode_size), lengths
+        question_encoded_padded_original = question.restore_original_order(question_encoded_padded_sorted, batch_dim=1)
+        # question and context has same ordering
+        question_pad_in_passage_sorted_order = passage.to_sorted_order(question_encoded_padded_original,
+                                                                       batch_dim=1)
+        question_mask_in_passage_sorted_order = passage.to_sorted_order(question.mask_original, batch_dim=0).transpose(
+            0, 1)
 
-        self_matched_passage = self._self_match_encode(paired_passage_pack, passage)
+        paired_passage_pack = self._pair_encode(passage_pack, question_pad_in_passage_sorted_order,
+                                                question_mask_in_passage_sorted_order)
 
-        print(self_matched_passage)
+        self_matched_passage_pack, _ = self._self_match_encode(paired_passage_pack, passage)
+
+        print(self_matched_passage_pack)
+        begin, end = self.pointer_output(question_pad_in_passage_sorted_order,
+                                         question_mask_in_passage_sorted_order,
+                                         pad_packed_sequence(self_matched_passage_pack),
+                                         passage.to_sorted_order(passage.mask_original, batch_dim=0).transpose(0, 1))
+        return begin, end
+
+
 
     def _sentence_encoding(self, embedded_passage, embedded_question, passage, question):
         question_pack = pack_padded_sequence(embedded_question, question.lengths, batch_first=True)
@@ -161,15 +204,8 @@ class RNet(nn.Module):
                                                           passage_mask_sorted_order, paired_passage_pack)
         return self_matched_passage
 
-    def _pair_encode(self, passage, passage_encoded_pack, question, question_encoded_pack):
-        question_encoded_padded_sorted, _ = pad_packed_sequence(
-            question_encoded_pack)  # (Seq, Batch, encode_size), lengths
-        # passage_encoded_padded_sorted, _ = pad_packed_sequence(passage_encoded_pack)
-        question_encoded_padded_original = question.restore_original_order(question_encoded_padded_sorted, batch_dim=1)
-        # question and context has same ordering
-        question_encoded_padded_in_passage_sorted_order = passage.to_sorted_order(question_encoded_padded_original,
-                                                                                  batch_dim=1)
-        question_mask_in_passage_order = passage.to_sorted_order(question.mask_original, batch_dim=0).transpose(0, 1)
+    def _pair_encode(self, passage_encoded_pack, question_encoded_padded_in_passage_sorted_order,
+                     question_mask_in_passage_order):
         paired_passage_pack, _ = self.pair_encoder(question_encoded_padded_in_passage_sorted_order,
                                                    question_mask_in_passage_order,
                                                    passage_encoded_pack)
