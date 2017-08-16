@@ -3,7 +3,8 @@ from torch.nn.utils.rnn import pad_packed_sequence, pack_padded_sequence, Packed
 from torch import nn
 from utils import get_rnn
 from torch.autograd import Variable
-from attention import PairAttentionLayer
+from attention import PairAttentionLayer, AttentionPooling
+
 
 class RNN(nn.Module):
     """ RNN Module """
@@ -224,3 +225,56 @@ class AttentionEncoder(nn.Module):
         output = PackedSequence(output_data, output_forward.batch_sizes)
         assert output.data.size(0) == pack.data.size(0)
         return output, hidden
+
+
+class PointerNetwork(nn.Module):
+    def __init__(self, question_size, passage_size, hidden_size, attn_size=None,
+                 cell_type=nn.GRUCell, num_layers=True, dropout=0, residual=False, **kwargs):
+        super().__init__()
+        if attn_size is None:
+            attn_size = question_size
+
+        # TODO: what is V_q? (section 3.4)
+        v_q_size = question_size
+        self.question_pooling = AttentionPooling(key_size=question_size,
+                                                 query_size=v_q_size, attn_size=attn_size)
+        self.passage_pooling = AttentionPooling(key_size=passage_size,
+                                                query_size=question_size, attn_size=attn_size)
+        self.V_q = nn.Parameter(torch.randn(1, 1, v_q_size), requires_grad=True)
+        self.cell = StackedCell(question_size, hidden_size, num_layers=num_layers,
+                                dropout=dropout, rnn_cell=cell_type, residual=residual, **kwargs)
+
+    def forward(self, question_pad, question_mask, passage_pad, passage_mask):
+
+        hidden = self.question_pooling(question_pad, self.V_q, keu_mask=question_mask) # 1 x batch x n
+
+        inputs, ans_begin = self.passage_pooling(passage_pad, hidden, key_mask=passage_mask, return_key_scores=True)
+        _, hidden = self.cell(inputs, hidden)
+        _, ans_end = self.passage_pooling(passage_pad, hidden, key_mask=passage_mask, return_key_scores=True)
+
+        return ans_begin, ans_end
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

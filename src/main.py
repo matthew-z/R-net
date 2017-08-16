@@ -39,9 +39,13 @@ def main():
                                 "dropout": 0.2, }
 
     pair_encoding_config = {"hidden_size": 75, "num_layers": 3, "bidirectional": True,
-                            "dropout": 0.2, "gated":True, "mode":"GRU",
-                            "rnn_cell": torch.nn.GRUCell, "attn_size":75, "residual":False}
-    self_matching_config= {}
+                            "dropout": 0.2, "gated": True, "mode":"GRU",
+                            "rnn_cell": torch.nn.GRUCell, "attn_size":75, "residual": False}
+
+    self_matching_config = {"hidden_size": 75, "num_layers": 3, "bidirectional": True,
+                            "dropout": 0.2, "gated": True, "mode":"GRU",
+                            "rnn_cell": torch.nn.GRUCell, "attn_size":75, "residual": False}
+
     pointer_config = {}
 
     model = RNet(char_embedding_config, word_embedding_config,sentence_encoding_config,
