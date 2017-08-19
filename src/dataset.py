@@ -1,4 +1,5 @@
 import os
+from collections import defaultdict
 
 import nltk
 import spacy
@@ -6,7 +7,7 @@ import torch
 from torch.autograd import Variable
 from torch.utils.data import DataLoader
 from torch.utils.data import Dataset
-from collections import defaultdict
+
 from utils import read_train_json, get_counter, read_dev_json, read_embedding, tokenized_by_answer, sort_idx
 
 
@@ -50,13 +51,13 @@ class Documents(object):
         for i, length in enumerate(self.original_lengths):
             self.mask_original[i][:length].fill_(1)
 
-    def to_variable(self, cuda=False):
+    def to_variable(self):
         self.tensor = Variable(self.tensor)
         self.tensor_new_dx = Variable(self.tensor_new_dx)
         self.sorted_idx = Variable(self.sorted_idx)
         self.original_idx = Variable(self.original_idx)
         self.mask_original = Variable(self.mask_original)
-        if cuda:
+        if torch.cuda.is_available():
             self.tensor = self.tensor.cuda()
             self.tensor_new_dx = self.tensor_new_dx.cuda()
             self.sorted_idx = self.sorted_idx.cuda()
@@ -72,6 +73,7 @@ class Documents(object):
 
 
 
+
 class Words(object):
     """
     Helper class for organizing seqs
@@ -82,8 +84,8 @@ class Words(object):
         self.words_lengths = words_lengths
         self.words = words
 
-    def to_variable(self, cuda=False):
-        if cuda:
+    def to_variable(self):
+        if torch.cuda.is_available():
             self.words_tensor = Variable(self.words_tensor).cuda()
         else:
             self.words_tensor = Variable(self.words_tensor)
@@ -283,9 +285,9 @@ class SQuAD(Dataset):
 
         def collate(examples):
             if self.split == "train":
-                question_ids, distinct_words_sets, questions, contexts, answers_positions, answer_texts = zip(*examples)
+                question_ids, distinct_words_sets, questions, passages, answers_positions, answer_texts = zip(*examples)
             else:
-                question_ids, distinct_words_sets, questions, contexts = zip(*examples)
+                question_ids, distinct_words_sets, questions, passages = zip(*examples)
 
             # word idx and chars for char-level encoding
             words = set()
@@ -301,19 +303,18 @@ class SQuAD(Dataset):
             questions_tensor, question_lengths = padding(questions, self.PAD, batch_first=batch_first)
             question_tensor_new = get_new_idx(questions_tensor, word_to_new_idx)
 
-            contexts_tensor, context_lengths = padding(contexts, self.PAD, batch_first=batch_first)
-            contexts_tensor_new = get_new_idx(contexts_tensor, word_to_new_idx)
+            passages_tensor, context_lengths = padding(passages, self.PAD, batch_first=batch_first)
+            passages_tensor_new = get_new_idx(passages_tensor, word_to_new_idx)
 
             words = Words(distinct_words_tensor, words_lengths, words)
             questions = Documents(questions_tensor, question_tensor_new, question_lengths)
-            contexts = Documents(contexts_tensor, contexts_tensor_new, context_lengths)
+            passages = Documents(passages_tensor, passages_tensor_new, context_lengths)
 
             if self.split == "train":
-                answers_positions = torch.LongTensor(answers_positions)
-                return question_ids, words, questions, contexts, answers_positions, answer_texts
+                return question_ids, words, questions, passages, torch.LongTensor(answers_positions), answer_texts
 
             else:
-                return question_ids, words, questions, contexts
+                return question_ids, words, questions, passages
 
         return collate
 

@@ -2,10 +2,10 @@ import torch
 from torch import nn
 from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
 
-from attention import PairAttentionLayer, AttentionPooling
 from dataset import Documents, Words
-from embedding import CharLevelEmbedding
-from recurrent import RNN, AttentionEncoder, AttentionEncoderCell, StackedCell
+from .attention import PairAttentionLayer, AttentionPooling
+from .embedding import CharLevelEmbedding
+from .recurrent import RNN, AttentionEncoder, AttentionEncoderCell, StackedCell
 
 
 class PairEncoder(nn.Module):
@@ -187,13 +187,13 @@ class RNet(nn.Module):
 
         self_matched_passage_pack, _ = self._self_match_encode(paired_passage_pack, passage)
 
-        print(self_matched_passage_pack)
         begin, end = self.pointer_output(question_pad_in_passage_sorted_order,
                                          question_mask_in_passage_sorted_order,
                                          pad_packed_sequence(self_matched_passage_pack)[0],
                                          passage.to_sorted_order(passage.mask_original, batch_dim=0).transpose(0, 1))
-        return begin, end
 
+        return (passage.restore_original_order(begin.transpose(0, 1), 0).squeeze(2),
+                passage.restore_original_order(end.transpose(0, 1), 0).squeeze(2))
 
 
     def _sentence_encoding(self, embedded_passage, embedded_question, passage, question):

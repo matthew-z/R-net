@@ -14,13 +14,21 @@ class AttentionEncoding(nn.Module):
         :return: if batch_first: seq x batch x n   context vectors
         """
         if source_mask is not None:
-            score_unnormalized = score_unnormalized * source_mask
+            score_unnormalized.data.masked_fill_(source_mask.data != 1, -1e12)
         n_batch, question_len, _ = source.size()
         scores = (F.softmax(score_unnormalized.view(-1, question_len))
                   .view(n_batch, question_len, 1))
 
 
         return scores
+
+    def _pointer_output(self, source, source_mask, score_unnormalized):
+        if source_mask is not None:
+            score_unnormalized.data.masked_fill_(source_mask.data != 1, -1e12)
+        n_batch, question_len, _ = source.size()
+        output = score_unnormalized.view(n_batch, question_len)
+        return output
+
 
 
 class PairAttentionLayer(AttentionEncoding):
@@ -95,7 +103,6 @@ class AttentionPooling(AttentionEncoding):
                                                       + self.query_linear(query)))
 
         scores = self._calculate_context(keys, key_mask, score_unnormalized)
-        # TODO: check dim order
 
         context = torch.bmm(scores.transpose(1, 2), values)
         if not self.batch_first:

@@ -1,11 +1,8 @@
 """Embedding each word using word-level and char-level embedding"""
 
-import torch
-import torchtext
-from torch.autograd import Variable
-from torch.nn.utils.rnn import pack_padded_sequence
-from torch.utils.data import DataLoader
 from torch import nn
+from torch.nn.utils.rnn import pack_padded_sequence
+
 from r_net.recurrent import RNN
 
 

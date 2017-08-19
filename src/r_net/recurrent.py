@@ -64,7 +64,8 @@ class StackedCell(nn.Module):
 
         next_hidden = []
         for i, layer in enumerate(self.layers):
-            next_hidden_i = layer(inputs, select_layer(hidden, i))
+            hidden_i = select_layer(hidden, i)
+            next_hidden_i = layer(inputs, hidden_i)
             output = next_hidden_i[0] if isinstance(next_hidden_i, tuple) \
                 else next_hidden_i
             if i + 1 != self.num_layers:
@@ -100,9 +101,6 @@ class AttentionEncoderCell(StackedCell):
 
     def forward(self, input_with_context_context_mask, hidden):
         inputs, context, context_mask = input_with_context_context_mask
-        if inputs.size(1) != hidden.size(1):
-            hidden = hidden[:, :inputs.size(1), :]
-
 
         if isinstance(hidden, tuple):
             hidden_for_attention = hidden[0]
@@ -178,7 +176,7 @@ class AttentionEncoder(nn.Module):
         if flat_hidden:
             hidden = (hidden,)
             initial_hidden = (initial_hidden,)
-        hidden = tuple(h[:, batch_sizes[-1]:batch_sizes[-1]+1] for h in hidden)
+        hidden = tuple(h[:, :batch_sizes[-1]] for h in hidden)
         for batch_size in reversed(batch_sizes):
             inc = batch_size - last_batch_size
             if inc > 0:
@@ -196,6 +194,8 @@ class AttentionEncoder(nn.Module):
 
         output.reverse()
         output = torch.cat(output, 0)
+        output = PackedSequence(output, batch_sizes)
+
         if flat_hidden:
             hidden = hidden[0]
         return output, hidden
@@ -207,6 +207,9 @@ class AttentionEncoder(nn.Module):
             hidden = torch.autograd.Variable(torch.zeros(self.num_layers,
                                                        max_batch_size,
                                                        self.hidden_size))
+            if torch.cuda.is_available():
+                hidden = hidden.cuda()
+
 
             if self.mode == 'LSTM':
                 hidden = (hidden, hidden)
@@ -214,12 +217,12 @@ class AttentionEncoder(nn.Module):
         output_forward, hidden_forward = self._forward(inputs, hidden)
         if not self.bidirectional:
             return hidden_forward, output_forward
-        output_reversed,hidden_reversed = self._reversed_forward(inputs, hidden)
+        output_reversed, hidden_reversed = self._reversed_forward(inputs, hidden)
 
         # concat forward and reversed forward
         hidden = torch.cat([hidden_forward, hidden_reversed], dim=hidden_forward.dim() - 1)
         output_data = torch.cat([output_forward.data, output_reversed.data],
-                                dim=output_reversed.dim()-1)
+                                dim=output_reversed.data.dim() - 1)
 
         output = PackedSequence(output_data, output_forward.batch_sizes)
         assert output.data.size(0) == pack.data.size(0)

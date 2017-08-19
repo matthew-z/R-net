@@ -4,7 +4,7 @@ import time
 
 import torch
 
-from trainer import trainer
+from trainer import Trainer
 
 
 def main():
@@ -21,7 +21,7 @@ def main():
         dataset = SQuAD(train_json, debug_mode=DEBUG)
         pickle.dump(dataset, open(dataset_cache, "wb"))
 
-    dataloader = dataset.get_dataloader(5, shuffle=True)
+    dataloader = dataset.get_dataloader(32, shuffle=False)
 
     char_embedding_config = {"embedding_weights": dataset.cv_vec,
                              "padding_idx": dataset.PAD,
@@ -30,7 +30,7 @@ def main():
 
     word_embedding_config = {"embedding_weights": dataset.wv_vec,
                              "padding_idx": dataset.PAD,
-                             "update": False}
+                             "update": True}
 
     sentence_encoding_config = {"hidden_size": 75, "num_layers": 3,
                                 "bidirectional": True,
@@ -46,9 +46,11 @@ def main():
 
     pointer_config = {"hidden_size": 75, "num_layers": 3,"dropout": 0.2,"residual": False, "rnn_cell": torch.nn.GRUCell}
 
-    trainer(char_embedding_config, dataloader, pair_encoding_config, pointer_config, self_matching_config,
-            sentence_encoding_config, start_time, word_embedding_config)
+    trainer = Trainer(dataloader, char_embedding_config, word_embedding_config, sentence_encoding_config,
+                      pair_encoding_config,
+                      self_matching_config, pointer_config)
 
+    trainer.train(10)
 
 if __name__ == "__main__":
     main()
