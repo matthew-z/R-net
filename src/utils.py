@@ -1,8 +1,8 @@
 # Code From pytorch/examples
+import errno
 import json
 import os
 import random
-import errno
 from argparse import ArgumentParser
 from collections import Counter
 
@@ -26,7 +26,6 @@ def make_dirs(name):
         else:
             # a different error happened
             raise
-
 
 def get_args():
     parser = ArgumentParser(description='PyTorch/torchtext SNLI example')

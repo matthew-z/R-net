@@ -19,36 +19,39 @@ class Trainer(object):
         if torch.cuda.is_available():
             self.model = self.model.cuda()
 
-        self.loss_fn = torch.nn.NLLLoss()
+        self.loss_fn = torch.nn.CrossEntropyLoss()
 
-        parameters_trainable = filter(lambda p: p.requires_grad, self.model.parameters())
-        self.optimizer = optim.Adam(parameters_trainable)
+        self.parameters_trainable = list(filter(lambda p: p.requires_grad, self.model.parameters()))
+        self.optimizer = optim.Adadelta(self.parameters_trainable, rho=0.95)
+
 
     def train(self, epoch_num):
         for epoch in range(epoch_num):
             global_loss = 0.0
             global_acc = 0.0
-            last_step = 0
+            last_step = -1
             last_time = time.time()
             for step, batch_train in enumerate(self.dataloader_train):
                 loss, acc = self._forward(batch_train)
                 global_loss += loss.data[0]
-                global_acc += acc.data[0]
+                global_acc += acc
                 self._update_param(loss)
 
-                if step % 1 == 0:
+                if step % 5 == 0:
                     used_time = time.time() - last_time
-                    step_num = step - last_step + 1
-                    print("step %d / %d of epoch %d)" % (step, len(self.dataloader_train), epoch))
-                    print("loss: ", global_loss / step_num)
-                    print("acc: ", global_acc / step_num)
-                    print("speed: %f examples/sec" %
-                          (self.dataloader_train.batch_size * step_num / used_time))
+                    step_num = step - last_step
+                    print("step %d / %d of epoch %d)" % (step, len(self.dataloader_train), epoch), flush=True)
+                    print("loss: ", global_loss / step_num, flush=True)
+                    print("acc: ", global_acc / step_num, flush=True)
+                    print("speed: %f examples/sec \n\n" %
+                          (self.dataloader_train.batch_size * step_num / used_time), flush=True)
 
                     global_loss = 0.0
                     global_acc = 0.0
                     last_step = step
                     last_time = time.time()
+
+            torch.save(self.model, open("trained_model", "wb"))
 
     def _forward(self, batch):
 
@@ -72,7 +75,7 @@ class Trainer(object):
         _, pred_end = torch.max(end_, 1)
 
         exact_correct_num = torch.sum((pred_begin == begin) * (pred_end == end))
-        acc = exact_correct_num / batch_num
+        acc = exact_correct_num.data[0] / batch_num
 
         return loss, acc
 

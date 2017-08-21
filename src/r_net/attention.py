@@ -8,7 +8,7 @@ class AttentionEncoding(nn.Module):
         self.batch_first = False
         super().__init__()
 
-    def _calculate_context(self, source, source_mask, score_unnormalized):
+    def _calculate_scores(self, source, source_mask, score_unnormalized):
         """
 
         :return: if batch_first: seq x batch x n   context vectors
@@ -62,7 +62,7 @@ class PairAttentionLayer(AttentionEncoding):
         score_unnormalized = self.score_linear(F.tanh(self.key_linear(keys)
                                                       + self.query1_linear(query1)
                                                       + self.query2_linear(query2)))
-        scores = self._calculate_context(keys, key_mask, score_unnormalized)
+        scores = self._calculate_scores(keys, key_mask, score_unnormalized)
         # TODO: check dim order
 
         context = torch.bmm(scores.transpose(1, 2), values)
@@ -89,6 +89,7 @@ class AttentionPooling(AttentionEncoding):
             query = query.transpose(0, 1)  # batch * 1 * n
             key_mask = key_mask.transpose(0, 1)  # batch * seq_len * 1
 
+        batch_size = keys.size(0)
         if values is None:
             values = keys
 
@@ -102,13 +103,13 @@ class AttentionPooling(AttentionEncoding):
         score_unnormalized = self.score_linear(F.tanh(self.key_linear(keys)
                                                       + self.query_linear(query)))
 
-        scores = self._calculate_context(keys, key_mask, score_unnormalized)
+        scores = self._calculate_scores(keys, key_mask, score_unnormalized)
 
         context = torch.bmm(scores.transpose(1, 2), values)
         if not self.batch_first:
             context = context.transpose(0, 1)
-            scores = scores.transpose(0, 1)
+            score_unnormalized = score_unnormalized.transpose(0, 1)
 
         if return_key_scores:
-            return context, scores
+            return context, score_unnormalized.squeeze(2)
         return context

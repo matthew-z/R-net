@@ -210,7 +210,6 @@ class AttentionEncoder(nn.Module):
             if torch.cuda.is_available():
                 hidden = hidden.cuda()
 
-
             if self.mode == 'LSTM':
                 hidden = (hidden, hidden)
 

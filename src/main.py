@@ -1,6 +1,5 @@
 import os
 import pickle
-import time
 
 import torch
 
@@ -8,8 +7,7 @@ from trainer import Trainer
 
 
 def main():
-    start_time = time.time()
-    DEBUG = True
+    DEBUG = False
     dataset_cache = "./data/cache/SQuAD%s.pkl" % ("_debug" if DEBUG else "")
 
     if os.path.isfile(dataset_cache):
@@ -21,7 +19,7 @@ def main():
         dataset = SQuAD(train_json, debug_mode=DEBUG)
         pickle.dump(dataset, open(dataset_cache, "wb"))
 
-    dataloader = dataset.get_dataloader(32, shuffle=False)
+    dataloader = dataset.get_dataloader(16, shuffle=True)
 
     char_embedding_config = {"embedding_weights": dataset.cv_vec,
                              "padding_idx": dataset.PAD,
@@ -30,7 +28,7 @@ def main():
 
     word_embedding_config = {"embedding_weights": dataset.wv_vec,
                              "padding_idx": dataset.PAD,
-                             "update": True}
+                             "update": False}
 
     sentence_encoding_config = {"hidden_size": 75, "num_layers": 3,
                                 "bidirectional": True,

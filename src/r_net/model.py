@@ -192,9 +192,8 @@ class RNet(nn.Module):
                                          pad_packed_sequence(self_matched_passage_pack)[0],
                                          passage.to_sorted_order(passage.mask_original, batch_dim=0).transpose(0, 1))
 
-        return (passage.restore_original_order(begin.transpose(0, 1), 0).squeeze(2),
-                passage.restore_original_order(end.transpose(0, 1), 0).squeeze(2))
-
+        return (passage.restore_original_order(begin.transpose(0, 1), 0),
+                passage.restore_original_order(end.transpose(0, 1), 0))
 
     def _sentence_encoding(self, embedded_passage, embedded_question, passage, question):
         question_pack = pack_padded_sequence(embedded_question, question.lengths, batch_first=True)
