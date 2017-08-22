@@ -6,7 +6,6 @@ from torch.autograd import Variable
 
 from r_net.model import RNet
 
-
 class Trainer(object):
     def __init__(self, dataloader_train, char_embedding_config, word_embedding_config, sentence_encoding_config,
                  pair_encoding_config,

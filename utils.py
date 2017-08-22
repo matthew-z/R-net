@@ -95,7 +95,6 @@ def load_word_vectors(root, wv_type, dim):
     return ret
 
 
-
 class RawExample(object):
     pass
 
@@ -328,7 +327,7 @@ def sort_idx(seq):
     :param seq: variable
     :return:
     """
-    return sorted(range(seq.size(0)), key=lambda x:seq[x])
+    return sorted(range(seq.size(0)), key=lambda x: seq[x])
 
 
 def prepare_data():
