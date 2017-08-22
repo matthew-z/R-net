@@ -19,7 +19,6 @@ class AttentionEncoding(nn.Module):
         scores = (F.softmax(score_unnormalized.view(-1, question_len))
                   .view(n_batch, question_len, 1))
 
-
         return scores
 
     def _pointer_output(self, source, source_mask, score_unnormalized):
@@ -30,80 +29,50 @@ class AttentionEncoding(nn.Module):
         return output
 
 
-
-class PairAttentionLayer(AttentionEncoding):
-    def __init__(self, key_size, query1_size, query2_size,
-                 attn_size=75, batch_first=False):
-        super().__init__()
-        self.key_linear = nn.Linear(key_size, attn_size, bias=False)
-        self.query1_linear = nn.Linear(query1_size, attn_size, bias=False)
-        self.query2_linear = nn.Linear(query2_size, attn_size, bias=False)
-        self.score_linear = nn.Linear(attn_size, 1, bias=False)
-        self.batch_first = batch_first
-
-    def forward(self, keys, query1, query2, values=None, key_mask=None, return_key_scores=False):
-
-        if not self.batch_first:
-            keys = keys.transpose(0, 1)  # batch * seq_len * n
-            query1 = query1.transpose(0, 1)  # batch * 1 * n
-            query2 = query2.transpose(0, 1)  # batch * 1 * n
-            key_mask = key_mask.transpose(0, 1)  # batch * seq_len * 1
-        key_mask = key_mask.unsqueeze(2)
-
-        curr_batch_size = query1.size(0)
-        if keys.size(0) != curr_batch_size:
-            keys = keys[:curr_batch_size]
-            query2 = query2[:curr_batch_size]
-            key_mask = key_mask[:curr_batch_size]
-
-        if values is None:
-            values = keys
-
-        score_unnormalized = self.score_linear(F.tanh(self.key_linear(keys)
-                                                      + self.query1_linear(query1)
-                                                      + self.query2_linear(query2)))
-        scores = self._calculate_scores(keys, key_mask, score_unnormalized)
-        # TODO: check dim order
-
-        context = torch.bmm(scores.transpose(1, 2), values)
-        if not self.batch_first:
-            context = context.transpose(0, 1)
-
-        if return_key_scores:
-            return context, scores
-        return context
-
-
 class AttentionPooling(AttentionEncoding):
-    def __init__(self, key_size, query_size, attn_size=75, batch_first=False):
+    def __init__(self, key_size, *query_sizes, attn_size=75, batch_first=False):
         super().__init__()
         self.key_linear = nn.Linear(key_size, attn_size, bias=False)
-        self.query_linear = nn.Linear(query_size, attn_size, bias=False)
+        self.query_linears = nn.ModuleList([nn.Linear(query_size, attn_size, bias=False) for query_size in query_sizes])
         self.score_linear = nn.Linear(attn_size, 1, bias=False)
         self.batch_first = batch_first
 
-    def forward(self, keys, query, key_mask=None, values=None, return_key_scores=False, broadcast_key=False):
+    def forward(self, key, queries, key_mask=None, values=None, return_key_scores=False, broadcast_key=False):
+        """
+
+        :param key:
+        :param queries: a list of query
+        :param key_mask:
+        :param values:
+        :param return_key_scores:
+        :param broadcast_key:
+        :return:
+        """
+        if not isinstance(queries, tuple) and not isinstance(queries, list):
+            queries = (queries,)
 
         if not self.batch_first:
-            keys = keys.transpose(0, 1)  # batch * seq_len * n
-            query = query.transpose(0, 1)  # batch * 1 * n
+            key = key.transpose(0, 1)  # batch * seq_len * n
+            queries = [query.transpose(0, 1) for query in queries]  # batch * 1 * n
             key_mask = key_mask.transpose(0, 1)  # batch * seq_len * 1
 
-        batch_size = keys.size(0)
-        if values is None:
-            values = keys
 
         key_mask = key_mask.unsqueeze(2)
+        curr_batch_size = queries[0].size(0)
 
-        curr_batch_size = query.size(0)
-        if keys.size(0) != curr_batch_size and not broadcast_key:
-            keys = keys[:curr_batch_size]
+        if key.size(0) != curr_batch_size and not broadcast_key:
+            key = key[:curr_batch_size]
             key_mask = key_mask[:curr_batch_size]
 
-        score_unnormalized = self.score_linear(F.tanh(self.key_linear(keys)
-                                                      + self.query_linear(query)))
+        if values is None:
+            values = key
 
-        scores = self._calculate_scores(keys, key_mask, score_unnormalized)
+        score_before_transformation = self.key_linear(key)
+        for i, query in enumerate(queries):
+            score_before_transformation = score_before_transformation + self.query_linears[i](query)
+
+        score_unnormalized = self.score_linear(F.tanh(score_before_transformation))
+        scores = self._calculate_scores(key, key_mask, score_unnormalized)
 
         context = torch.bmm(scores.transpose(1, 2), values)
         if not self.batch_first:

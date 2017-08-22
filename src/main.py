@@ -1,6 +1,5 @@
 import os
 import pickle
-from cProfile import run
 
 import torch
 
@@ -23,7 +22,7 @@ def main():
         dataset = SQuAD(train_json, debug_mode=DEBUG)
         pickle.dump(dataset, open(dataset_cache, "wb"))
 
-    dataloader = dataset.get_dataloader(64, shuffle=True)
+    dataloader = dataset.get_dataloader(16, shuffle=True)
 
     char_embedding_config = {"embedding_weights": dataset.cv_vec,
                              "padding_idx": dataset.PAD,
@@ -55,4 +54,4 @@ def main():
     trainer.train(10)
 
 if __name__ == "__main__":
-    run('main()')
+    main()

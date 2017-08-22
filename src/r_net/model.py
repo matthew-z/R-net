@@ -3,7 +3,7 @@ from torch import nn
 from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
 
 from dataset import Documents, Words
-from .attention import PairAttentionLayer, AttentionPooling
+from .attention import AttentionPooling
 from .embedding import CharLevelEmbedding
 from .recurrent import RNN, AttentionEncoder, AttentionEncoderCell, StackedCell
 
@@ -12,31 +12,40 @@ class PairEncoder(nn.Module):
     def __init__(self, question_embed_size, passage_embed_size, config,
                  cell_factory=AttentionEncoderCell):
         super().__init__()
+
+        attn_args = [question_embed_size, passage_embed_size, config["hidden_size"]]
+        attn_kwags = {"attn_size": 75, "batch_first": False}
+
+
         self.pair_encoder = AttentionEncoder(
             cell_factory, question_embed_size, passage_embed_size,
-            config["hidden_size"], PairAttentionLayer,
-            bidirectional=config["bidirectional"], mode=config["mode"], attn_size=config["attn_size"],
+            config["hidden_size"], AttentionPooling, attn_args, attn_kwags,
+            bidirectional=config["bidirectional"], mode=config["mode"],
             num_layers=config["num_layers"], dropout=config["dropout"],
             residual=config["residual"], gated=config["gated"],
-            rnn_cell=config["rnn_cell"]
+            rnn_cell=config["rnn_cell"], attn_mode="pair_encoding"
         )
 
     def forward(self, questions, question_mark, passage):
         inputs = (passage, questions, question_mark)
-        return self.pair_encoder(inputs)
+        result = self.pair_encoder(inputs)
+        return result
 
 
 class SelfMatchingEncoder(nn.Module):
-    def __init__(self, question_embed_size, passage_embed_size, config,
+    def __init__(self, passage_embed_size, config,
                  cell_factory=AttentionEncoderCell):
         super().__init__()
+        attn_args = [passage_embed_size, passage_embed_size]
+        attn_kwags = {"attn_size": 75, "batch_first": False}
+
         self.pair_encoder = AttentionEncoder(
-            cell_factory, question_embed_size, passage_embed_size,
-            config["hidden_size"], AttentionPooling,
-            bidirectional=config["bidirectional"], mode=config["mode"], attn_size=config["attn_size"],
+            cell_factory, passage_embed_size, passage_embed_size,
+            config["hidden_size"], AttentionPooling, attn_args, attn_kwags,
+            bidirectional=config["bidirectional"], mode=config["mode"],
             num_layers=config["num_layers"], dropout=config["dropout"],
             residual=config["residual"], gated=config["gated"],
-            rnn_cell=config["rnn_cell"]
+            rnn_cell=config["rnn_cell"], attn_mode="self_matching"
         )
 
     def forward(self, questions, question_mark, passage):
@@ -123,10 +132,11 @@ class PointerNetwork(nn.Module):
 
         # TODO: what is V_q? (section 3.4)
         v_q_size = question_size
-        self.question_pooling = AttentionPooling(key_size=question_size,
-                                                 query_size=v_q_size, attn_size=attn_size)
-        self.passage_pooling = AttentionPooling(key_size=passage_size,
-                                                query_size=question_size, attn_size=attn_size)
+        self.question_pooling = AttentionPooling(question_size,
+                                                 v_q_size, attn_size=attn_size)
+        self.passage_pooling = AttentionPooling(passage_size,
+                                                question_size, attn_size=attn_size)
+
         self.V_q = nn.Parameter(torch.randn(1, 1, v_q_size), requires_grad=True)
         self.cell = StackedCell(question_size, question_size, num_layers=num_layers,
                                 dropout=dropout, rnn_cell=cell_type, residual=residual, **kwargs)
@@ -137,9 +147,11 @@ class PointerNetwork(nn.Module):
 
         hidden = hidden.expand([self.num_layers, hidden.size(1), hidden.size(2)])
 
-        inputs, ans_begin = self.passage_pooling(passage_pad, hidden, key_mask=passage_mask, return_key_scores=True)
+        inputs, ans_begin = self.passage_pooling(passage_pad, hidden,
+                                                 key_mask=passage_mask, return_key_scores=True)
         _, hidden = self.cell(inputs.squeeze(0), hidden)
-        _, ans_end = self.passage_pooling(passage_pad, hidden, key_mask=passage_mask, return_key_scores=True)
+        _, ans_end = self.passage_pooling(passage_pad, hidden,
+                                          key_mask=passage_mask, return_key_scores=True)
 
         return ans_begin, ans_end
 
@@ -159,9 +171,8 @@ class RNet(nn.Module):
                                         pair_encoding_config)
 
         self_match_num_direction = (2 if pair_encoding_config["bidirectional"] else 1)
-        self.self_matching_encoder = PairEncoder(pair_encoding_config["hidden_size"] * self_match_num_direction,
-                                                 pair_encoding_config["hidden_size"] * self_match_num_direction,
-                                                 self_matching_config)
+        self.self_matching_encoder = SelfMatchingEncoder(pair_encoding_config["hidden_size"] * self_match_num_direction,
+                                                         self_matching_config)
 
         question_size = sentence_num_direction * sentence_encoding_config["hidden_size"]
         passage_size = self_match_num_direction * pair_encoding_config["hidden_size"]

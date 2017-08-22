@@ -51,9 +51,6 @@ class Trainer(object):
                     last_step = step
                     last_time = time.time()
 
-                    # if step > 10:
-                    #     return
-
             torch.save(self.model, open("trained_model", "wb"))
 
     def _forward(self, batch):

@@ -84,15 +84,15 @@ class StackedCell(nn.Module):
 
 class AttentionEncoderCell(StackedCell):
     def __init__(self, question_embed_size, passage_embed_size, hidden_size,
-                 attention_layer_factory, attn_size=75, num_layers=1,
+                 attention_layer_factory, attn_args, attn_kwags, attn_mode="pair_encoding", num_layers=1,
                  dropout=0, bias=True, rnn_cell=nn.GRUCell, residual=False,
                  gated=True):
         input_size = question_embed_size + passage_embed_size
         super().__init__(input_size, hidden_size, num_layers,
                          dropout, bias, rnn_cell, residual)
-        self.attention = attention_layer_factory(question_embed_size, passage_embed_size,
-                                                 hidden_size , attn_size, False)
+        self.attention = attention_layer_factory(*attn_args, **attn_kwags)
         self.gated = gated
+        self.attn_mode = attn_mode
         if gated:
             self.gate = nn.Sequential(
                 nn.Linear(input_size, input_size, bias=False),
@@ -107,8 +107,16 @@ class AttentionEncoderCell(StackedCell):
         else:
             hidden_for_attention = hidden
         hidden_for_attention = hidden_for_attention[0:1]
+        #
+        key = context
+        if self.attn_mode == "pair_encoding":
+            queries = [inputs, hidden_for_attention]
+        elif self.attn_mode == "self_matching":
+            queries = [inputs]
+        else:
+            raise ValueError("invalid attention_mode %s" % self.attn_mode)
 
-        context = self.attention(context, inputs, hidden_for_attention, key_mask=context_mask)
+        context = self.attention(key, queries, key_mask=context_mask)
         inputs = torch.cat([context, inputs], dim=context.dim()-1)
         if self.gated:
             inputs = inputs * self.gate(inputs)
