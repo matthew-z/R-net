@@ -5,13 +5,16 @@ import os
 import random
 from argparse import ArgumentParser
 from collections import Counter
+from urllib.request import urlretrieve
 
 import torch
 from torchtext import vocab
+from tqdm import tqdm
 
 
 class RawExample(object):
     pass
+
 
 def make_dirs(name):
     """helper function for python 2 and 3 to call os.makedirs()
@@ -26,6 +29,35 @@ def make_dirs(name):
         else:
             # a different error happened
             raise
+
+
+class TqdmUpTo(tqdm):
+    """Provides `update_to(n)` which uses `tqdm.update(delta_n)`."""
+
+    def update_to(self, b=1, bsize=1, tsize=None):
+        """
+        b  : int, optional
+            Number of blocks transferred so far [default: 1].
+        bsize  : int, optional
+            Size of each block (in tqdm units) [default: 1].
+        tsize  : int, optional
+            Total size (in tqdm units). If [default: None] remains unchanged.
+        """
+        if tsize is not None:
+            self.total = tsize
+        self.update(b * bsize - self.n)  # will also set self.n = b * bsize
+
+
+def maybe_download(url, download_path, filename):
+    if not os.path.exists(os.path.join(download_path, filename)):
+        try:
+            print("Downloading file {}...".format(url + filename))
+            with TqdmUpTo(unit='B', unit_scale=True, miniters=1, desc=filename) as t:
+                local_filename, _ = urlretrieve(url, os.path.join(download_path, filename), reporthook=t.update_to)
+        except AttributeError as e:
+            print("An error occurred when downloading the file! Please get the dataset using a browser.")
+            raise e
+
 
 def get_args():
     parser = ArgumentParser(description='PyTorch/torchtext SNLI example')
@@ -213,3 +245,25 @@ def sort_idx(seq):
     :return:
     """
     return sorted(range(seq.size(0)), key=lambda x:seq[x])
+
+
+def prepare_data():
+    make_dirs("data/cache")
+    make_dirs("data/embedding/char")
+    make_dirs("data/embedding/word")
+    make_dirs("data/squad")
+
+    train_filename = "train-v1.1.json"
+    dev_filename = "dev-v1.1.json"
+    squad_base_url = "https://rajpurkar.github.io/SQuAD-explorer/dataset/"
+
+    train_url = os.path.join(squad_base_url, train_filename)
+    dev_url = os.path.join(squad_base_url, dev_filename)
+
+    download_prefix = os.path.join("data", "squad")
+    maybe_download(train_url, train_filename, download_prefix)
+    maybe_download(dev_url, dev_filename, download_prefix)
+
+    char_embedding_pretrain_url = "https://raw.githubusercontent.com/minimaxir/char-embeddings/master/glove.840B.300d-char.txt"
+    char_embedding_filename = "glove_char.840B.300d"
+    maybe_download(char_embedding_pretrain_url, char_embedding_filename, "data/embedding/char")
