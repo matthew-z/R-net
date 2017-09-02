@@ -42,6 +42,41 @@ def reporthook(t):
 
 
 def load_word_vectors(root, wv_type, dim):
+    """
+
+    From https://github.com/pytorch/text/
+
+    BSD 3-Clause License
+
+    Copyright (c) James Bradbury and Soumith Chintala 2016,
+    All rights reserved.
+
+    Redistribution and use in source and binary forms, with or without
+    modification, are permitted provided that the following conditions are met:
+
+    * Redistributions of source code must retain the above copyright notice, this
+      list of conditions and the following disclaimer.
+
+    * Redistributions in binary form must reproduce the above copyright notice,
+      this list of conditions and the following disclaimer in the documentation
+      and/or other materials provided with the distribution.
+
+    * Neither the name of the copyright holder nor the names of its
+      contributors may be used to endorse or promote products derived from
+      this software without specific prior written permission.
+
+    THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+    AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+    IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+    DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+    FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+    DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+    SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+    CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+    OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+    OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+    """
     """Load word vectors from a path, trying .pt, .txt, and .zip extensions."""
     if isinstance(dim, int):
         dim = str(dim) + 'd'
@@ -143,28 +178,24 @@ def maybe_download(url, download_path, filename):
 
 
 def get_args():
-    parser = ArgumentParser(description='PyTorch/torchtext SNLI example')
+    parser = ArgumentParser(description='PyTorch R-nEt')
     parser.add_argument('--epochs', type=int, default=50)
-    parser.add_argument('--batch_size', type=int, default=128)
-    parser.add_argument('--d_embed', type=int, default=300)
-    parser.add_argument('--d_proj', type=int, default=300)
-    parser.add_argument('--d_hidden', type=int, default=300)
-    parser.add_argument('--n_layers', type=int, default=1)
-    parser.add_argument('--log_every', type=int, default=50)
-    parser.add_argument('--lr', type=float, default=.001)
-    parser.add_argument('--dev_every', type=int, default=1000)
-    parser.add_argument('--save_every', type=int, default=1000)
-    parser.add_argument('--dp_ratio', type=int, default=0.2)
-    parser.add_argument('--no-bidirectional', action='store_false', dest='birnn')
-    parser.add_argument('--preserve-case', action='store_false', dest='lower')
-    parser.add_argument('--no-projection', action='store_false', dest='projection')
-    parser.add_argument('--train_embed', action='store_false', dest='fix_emb')
-    parser.add_argument('--gpu', type=int, default=0)
-    parser.add_argument('--save_path', type=str, default='results')
-    parser.add_argument('--data_cache', type=str, default=os.path.join(os.getcwd(), '.data_cache'))
-    parser.add_argument('--vector_cache', type=str, default=os.path.join(os.getcwd(), '.vector_cache/input_vectors.pt'))
-    parser.add_argument('--word_vectors', type=str, default='glove.42B')
+    parser.add_argument('--batch_size', type=int, default=16)
+    parser.add_argument('--batch_size_dev', type=int, default=64)
+
     parser.add_argument('--resume_snapshot', type=str, default='')
+    parser.add_argument('--train_json', type=str, default="./data/squad/train-v1.1.json")
+    parser.add_argument('--dev_json', type=str, default="./data/squad/dev-v1.1.json")
+    parser.add_argument('--update_word_embedding', type=bool, default=False)
+    parser.add_argument('--update_char_embedding', type=bool, default=True)
+    parser.add_argument('--hidden_size', type=int, default=75)
+    parser.add_argument('--attention_size', type=int, default=75)
+    parser.add_argument('--dropout', type=float, default=0.2)
+    parser.add_argument('--residual', type=bool, default=False)
+    parser.add_argument('--resume_snapshot', type=str, default='')
+    parser.add_argument('--bidirectional', type=bool, default=True)
+    parser.add_argument('--num_layers', type=int, default=3)
+
     args = parser.parse_args()
     return args
 
@@ -269,7 +300,7 @@ def tokenized_by_answer(context, answer_text, answer_start, tokenizer):
     Locate the answer token-level position after tokenizing as the original location is based on
     char-level
 
-    snippet from: https://github.com/haichao592/squad-tf/blob/master/dataset.py
+    snippet modified from: https://github.com/haichao592/squad-tf/blob/master/dataset.py
 
     :param context:  passage
     :param answer_text:     context/passage
@@ -335,6 +366,7 @@ def prepare_data():
     make_dirs("data/embedding/char")
     make_dirs("data/embedding/word")
     make_dirs("data/squad")
+    make_dirs("data/trained_model")
 
     train_filename = "train-v1.1.json"
     dev_filename = "dev-v1.1.json"

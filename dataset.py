@@ -98,13 +98,14 @@ class SQuAD(Dataset):
 
         self.UNK = 0
         self.PAD = 1
-
+        print("building word embedding cache")
         if embedding_cache_root is None:
             embedding_cache_root = "./data/embedding"
 
         if word_embedding is None:
             word_embedding = (os.path.join(embedding_cache_root, "word"), "glove.840B", 300)
 
+        print("building char embedding cache")
         # TODO: read trained char embedding in testing
         if char_embedding is None:
             char_embedding_root = os.path.join(embedding_cache_root, "char")
@@ -126,8 +127,9 @@ class SQuAD(Dataset):
         self.insert_end = insert_end
         self._set_tokenizer(tokenization)
         self.split = split
-
         # read and parsing raw data from json
+        # tokenizing with answer may result in different tokenized passage even the passage is the same one.
+        # so we tokenize passage for each question in train split
         if self.split == "train":
             self.examples_raw, context_with_counter = read_train_json(path, debug_mode, debug_len)
             tokenized_context, self.answers_positions = self.tokenize_context_with_answer(context_with_counter)
@@ -135,6 +137,7 @@ class SQuAD(Dataset):
             self.examples_raw, context_with_counter = read_dev_json(path, debug_mode, debug_len)
             tokenized_context = [self.tokenizer(doc) for doc, count in context_with_counter]
 
+        self.tokenized_context = tokenized_context
         tokenized_question = [self.tokenizer(e.question) for e in self.examples_raw]
 
         # char/word counter
@@ -182,15 +185,20 @@ class SQuAD(Dataset):
 
     def __getitem__(self, idx):
 
-        question = self.numeralized_question[idx]
+        question_numeralized = self.numeralized_question[idx]
 
         if self.split == "train":
-            context = self.numeralized_context[idx]
+            passage_numeralized = self.numeralized_context[idx]
         else:
-            context = self.numeralized_context[self.examples_raw[idx].context_id]
+            passage_numeralized = self.numeralized_context[self.examples_raw[idx].context_id]
+
+        if self.split == "train":
+            passage_tokenized = self.tokenized_context[idx]
+        else:
+            passage_tokenized = self.tokenized_context[self.examples_raw[idx].context_id]
 
         distinct_words = set([self.stoi[w] for w in self.specials])
-        for word_idx in question + context:
+        for word_idx in question_numeralized + passage_numeralized:
             if word_idx in distinct_words:
                 continue
             distinct_words.add(word_idx)
@@ -200,9 +208,9 @@ class SQuAD(Dataset):
 
         if self.split == "train":
             answers_position = self.answers_positions[idx]
-            return question_id, distinct_words, question, context, answers_position, answer_text
+            return question_id, distinct_words, question_numeralized, passage_numeralized, answers_position, answer_text, passage_tokenized
         else:
-            return question_id, distinct_words, question, context
+            return question_id, distinct_words, question_numeralized, passage_numeralized, passage_tokenized
 
     def __len__(self):
         return len(self.examples_raw)
@@ -285,9 +293,10 @@ class SQuAD(Dataset):
 
         def collate(examples):
             if self.split == "train":
-                question_ids, distinct_words_sets, questions, passages, answers_positions, answer_texts = zip(*examples)
+                question_ids, distinct_words_sets, questions, passages, answers_positions, answer_texts, passage_tokenized = zip(
+                    *examples)
             else:
-                question_ids, distinct_words_sets, questions, passages = zip(*examples)
+                question_ids, distinct_words_sets, questions, passages, passage_tokenized = zip(*examples)
 
             # word idx and chars for char-level encoding
             words = set()
@@ -314,7 +323,7 @@ class SQuAD(Dataset):
                 return question_ids, words, questions, passages, torch.LongTensor(answers_positions), answer_texts
 
             else:
-                return question_ids, words, questions, passages
+                return question_ids, words, questions, passages, passage_tokenized
 
         return collate
 

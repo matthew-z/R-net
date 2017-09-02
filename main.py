@@ -4,54 +4,85 @@ import pickle
 import torch
 
 from trainer import Trainer
-from utils import prepare_data
+from utils import prepare_data, get_args
 
 
 def main():
     prepare_data()
 
-    DEBUG = False
-    dataset_cache = "./data/cache/SQuAD%s.pkl" % ("_debug" if DEBUG else "")
+    DEBUG = True
 
-    if os.path.isfile(dataset_cache):
-        dataset = pickle.load(open(dataset_cache,"rb"))
-    else:
+    args = get_args()
 
-        train_json = "./data/squad/train-v1.1.json"
-        from dataset import SQuAD
-        dataset = SQuAD(train_json, debug_mode=DEBUG)
-        pickle.dump(dataset, open(dataset_cache, "wb"))
+    train_cache = "./data/cache/SQuAD%s.pkl" % ("_debug" if DEBUG else "")
+    dev_cache = "./data/cache/SQuAD_dev%s.pkl" % ("_debug" if DEBUG else "")
 
-    dataloader = dataset.get_dataloader(16, shuffle=True)
+    train_json = args.train_json
+    dev_json = args.dev_json
 
-    char_embedding_config = {"embedding_weights": dataset.cv_vec,
-                             "padding_idx": dataset.PAD,
-                             "update": True, "bidirectional": True,
+    train = read_dataset(train_json, train_cache, DEBUG)
+    dev = read_dataset(dev_json, dev_cache, DEBUG)
+
+    dev_dataloader = dev.get_dataloader(args.batch_size_dev)
+    train_dataloader = train.get_dataloader(args.batch_size, shuffle=True)
+
+    char_embedding_config = {"embedding_weights": train.cv_vec,
+                             "padding_idx": train.PAD,
+                             "update": args.update_char_embedding,
+                             "bidirectional": args.bidirectional,
                              "cell_type": "gru", "output_dim": 300}
 
-    word_embedding_config = {"embedding_weights": dataset.wv_vec,
-                             "padding_idx": dataset.PAD,
-                             "update": False}
+    word_embedding_config = {"embedding_weights": train.wv_vec,
+                             "padding_idx": train.PAD,
+                             "update": args.update_word_embedding}
 
-    sentence_encoding_config = {"hidden_size": 75, "num_layers": 3,
+    sentence_encoding_config = {"hidden_size": args.hidden_size,
+                                "num_layers": args.num_layers,
                                 "bidirectional": True,
-                                "dropout": 0.2, }
+                                "dropout": args.dropout, }
 
-    pair_encoding_config = {"hidden_size": 75, "num_layers": 3, "bidirectional": True,
-                            "dropout": 0.2, "gated": True, "mode":"GRU",
-                            "rnn_cell": torch.nn.GRUCell, "attn_size":75, "residual": False}
+    pair_encoding_config = {"hidden_size": args.hidden_size,
+                            "num_layers": args.num_layers,
+                            "bidirectional": args.bidirectional,
+                            "dropout": args.dropout,
+                            "gated": True, "mode": "GRU",
+                            "rnn_cell": torch.nn.GRUCell,
+                            "attn_size": args.attention_size,
+                            "residual": args.residual}
 
-    self_matching_config = {"hidden_size": 75, "num_layers": 3, "bidirectional": True,
-                            "dropout": 0.2, "gated": True, "mode":"GRU",
-                            "rnn_cell": torch.nn.GRUCell, "attn_size":75, "residual": False}
+    self_matching_config = {"hidden_size": args.hidden_size,
+                            "num_layers": args.num_layers,
+                            "bidirectional": args.bidirectional,
+                            "dropout": args.dropout,
+                            "gated": True, "mode": "GRU",
+                            "rnn_cell": torch.nn.GRUCell,
+                            "attn_size": args.attention_size,
+                            "residual": args.residual}
 
-    pointer_config = {"hidden_size": 75, "num_layers": 3,"dropout": 0.2,"residual": False, "rnn_cell": torch.nn.GRUCell}
+    pointer_config = {"hidden_size": args.hidden_size,
+                      "num_layers": args.num_layers,
+                      "dropout": args.dropout,
+                      "residual": args.residual,
+                      "rnn_cell": torch.nn.GRUCell}
 
-    trainer = Trainer(dataloader, char_embedding_config, word_embedding_config, sentence_encoding_config,
-                      pair_encoding_config,
-                      self_matching_config, pointer_config)
+    trainer = Trainer(train_dataloader, dev_dataloader,
+                      char_embedding_config, word_embedding_config,
+                      sentence_encoding_config, pair_encoding_config,
+                      self_matching_config, pointer_config, dev_dataset_path=args.dev_json)
 
     trainer.train(10)
+
+
+def read_dataset(json_file, cache_file, DEBUG=False, split="train"):
+    if os.path.isfile(cache_file):
+        dataset = pickle.load(open(cache_file, "rb"))
+    else:
+        print("building %s dataset" % split)
+        from dataset import SQuAD
+        dataset = SQuAD(json_file, debug_mode=DEBUG, split=split)
+        pickle.dump(dataset, open(cache_file, "wb"))
+    return dataset
+
 
 if __name__ == "__main__":
     main()
