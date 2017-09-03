@@ -89,6 +89,9 @@ class Trainer(object):
             log_value('dev/EM', exact_match, step)
 
             torch.save(self.model.cpu(), open("trained_model", "wb"))
+            if f1 > self.model.current_score:
+                self.model.current_score = f1
+                torch.save(self.model.cpu(), open("best_trained_model", "wb"))
 
     def eval(self):
         self.model.eval()

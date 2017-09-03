@@ -160,6 +160,7 @@ class RNet(nn.Module):
     def __init__(self, char_embedding_config, word_embedding_config, sentence_encoding_config,
                  pair_encoding_config, self_matching_config, pointer_config):
         super().__init__()
+        self.current_score = 0
         self.embedding = WordEmbedding(char_embedding_config, word_embedding_config)
         self.sentence_encoding = SentenceEncoding(self.embedding.embedding_size, sentence_encoding_config)
 
