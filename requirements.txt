@@ -1,0 +1,5 @@
+tensorboard_logger
+tqdm
+nltk
+spacy
+six
