@@ -9,17 +9,4 @@ See: https://www.microsoft.com/en-us/research/publication/mrc/
 
 
 
-
-dependent:
-
-Python 3.5/3.6
-
-PyTorch 0.2
-
-tqdm
-
-nltk
-
-spacy
-
-six
+Python 3.5/3.6  and PyTorch 0.2
