@@ -1,5 +1,6 @@
 import os
 from collections import defaultdict
+from functools import partial
 
 import nltk
 import spacy
@@ -51,12 +52,12 @@ class Documents(object):
         for i, length in enumerate(self.original_lengths):
             self.mask_original[i][:length].fill_(1)
 
-    def to_variable(self):
-        self.tensor = Variable(self.tensor)
-        self.tensor_new_dx = Variable(self.tensor_new_dx)
-        self.sorted_idx = Variable(self.sorted_idx)
-        self.original_idx = Variable(self.original_idx)
-        self.mask_original = Variable(self.mask_original)
+    def to_variable(self, volatile=False):
+        self.tensor = Variable(self.tensor, volatile=volatile)
+        self.tensor_new_dx = Variable(self.tensor_new_dx, volatile=volatile)
+        self.sorted_idx = Variable(self.sorted_idx, volatile=volatile)
+        self.original_idx = Variable(self.original_idx, volatile=volatile)
+        self.mask_original = Variable(self.mask_original, volatile=volatile)
         if torch.cuda.is_available():
             self.tensor = self.tensor.cuda()
             self.tensor_new_dx = self.tensor_new_dx.cuda()
@@ -84,18 +85,18 @@ class Words(object):
         self.words_lengths = words_lengths
         self.words = words
 
-    def to_variable(self):
+    def to_variable(self, volatile=False):
         if torch.cuda.is_available():
-            self.words_tensor = Variable(self.words_tensor).cuda()
+            self.words_tensor = Variable(self.words_tensor, volatile=volatile).cuda()
         else:
-            self.words_tensor = Variable(self.words_tensor)
+            self.words_tensor = Variable(self.words_tensor, volatile=volatile)
 
 
 class SQuAD(Dataset):
     def __init__(self, path, word_embedding=None, char_embedding=None, embedding_cache_root=None, split="train",
                  tokenization="nltk", insert_start="<SOS>", insert_end="<EOS>",
                  debug_mode=False, debug_len=50):
-
+        print(split)
         self.UNK = 0
         self.PAD = 1
         print("building word embedding cache")
@@ -291,8 +292,8 @@ class SQuAD(Dataset):
 
             return result
 
-        def collate(examples):
-            if self.split == "train":
+        def collate(examples, this):
+            if this.split == "train":
                 question_ids, distinct_words_sets, questions, passages, answers_positions, answer_texts, passage_tokenized = zip(
                     *examples)
             else:
@@ -307,25 +308,25 @@ class SQuAD(Dataset):
             word_to_new_idx = {word: i for i, word in enumerate(words)}
 
             words_in_chars = [word_to_chars(word_idx) for word_idx in words]
-            distinct_words_tensor, words_lengths = padding(words_in_chars, self.PAD, batch_first=batch_first)
+            distinct_words_tensor, words_lengths = padding(words_in_chars, this.PAD, batch_first=batch_first)
 
-            questions_tensor, question_lengths = padding(questions, self.PAD, batch_first=batch_first)
+            questions_tensor, question_lengths = padding(questions, this.PAD, batch_first=batch_first)
             question_tensor_new = get_new_idx(questions_tensor, word_to_new_idx)
 
-            passages_tensor, context_lengths = padding(passages, self.PAD, batch_first=batch_first)
+            passages_tensor, context_lengths = padding(passages, this.PAD, batch_first=batch_first)
             passages_tensor_new = get_new_idx(passages_tensor, word_to_new_idx)
 
             words = Words(distinct_words_tensor, words_lengths, words)
             questions = Documents(questions_tensor, question_tensor_new, question_lengths)
             passages = Documents(passages_tensor, passages_tensor_new, context_lengths)
 
-            if self.split == "train":
+            if this.split == "train":
                 return question_ids, words, questions, passages, torch.LongTensor(answers_positions), answer_texts
 
             else:
                 return question_ids, words, questions, passages, passage_tokenized
 
-        return collate
+        return partial(collate, this=self)
 
     def get_dataloader(self, batch_size, num_workers=4, shuffle=True, batch_first=True):
         """

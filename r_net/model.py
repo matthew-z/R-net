@@ -16,7 +16,6 @@ class PairEncoder(nn.Module):
         attn_args = [question_embed_size, passage_embed_size, config["hidden_size"]]
         attn_kwags = {"attn_size": 75, "batch_first": False}
 
-
         self.pair_encoder = AttentionEncoder(
             cell_factory, question_embed_size, passage_embed_size,
             config["hidden_size"], AttentionPooling, attn_args, attn_kwags,
@@ -87,7 +86,6 @@ class WordEmbedding(nn.Module):
         :param documents_lists: lists of documents like: (contexts_tensor, contexts_tensor_new), context_lengths)
         :return:   embedded batch (batch first)
         """
-
         word_embedded_in_char = self.word_embedding_char_level(words.words_tensor, words.words_lengths)
 
         result = []
@@ -181,8 +179,8 @@ class RNet(nn.Module):
 
     def forward(self, distinct_words: Words, question: Documents, passage: Documents):
         # embed words using char-level and word-level and concat them
+        # import ipdb; ipdb.set_trace()
         embedded_question, embedded_passage = self.embedding(distinct_words, question, passage)
-
         passage_pack, question_pack = self._sentence_encoding(embedded_passage, embedded_question,
                                                               passage, question)
 

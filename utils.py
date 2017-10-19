@@ -7,6 +7,7 @@ import zipfile
 from argparse import ArgumentParser
 from collections import Counter
 
+import nltk
 import six
 import torch
 from six.moves.urllib.request import urlretrieve
@@ -178,11 +179,11 @@ def maybe_download(url, download_path, filename):
 
 
 def get_args():
-    parser = ArgumentParser(description='PyTorch R-nEt')
+    parser = ArgumentParser(description='PyTorch R-net')
     parser.add_argument('--epochs', type=int, default=50)
     parser.add_argument('--batch_size', type=int, default=16)
-    parser.add_argument('--batch_size_dev', type=int, default=64)
-
+    parser.add_argument('--batch_size_dev', type=int, default=20)
+    parser.add_argument('--debug', type=bool, default=False)
     parser.add_argument('--resume_snapshot', type=str, default='')
     parser.add_argument('--train_json', type=str, default="./data/squad/train-v1.1.json")
     parser.add_argument('--dev_json', type=str, default="./data/squad/dev-v1.1.json")
@@ -192,7 +193,6 @@ def get_args():
     parser.add_argument('--attention_size', type=int, default=75)
     parser.add_argument('--dropout', type=float, default=0.2)
     parser.add_argument('--residual', type=bool, default=False)
-    parser.add_argument('--resume_snapshot', type=str, default='')
     parser.add_argument('--bidirectional', type=bool, default=True)
     parser.add_argument('--num_layers', type=int, default=3)
 
@@ -200,7 +200,7 @@ def get_args():
     return args
 
 
-def read_train_json(path, debug_mode, debug_len):
+def read_train_json(path, debug_mode, debug_len, delete_long_context=True):
     with open(path) as fin:
         data = json.load(fin)
     examples = []
@@ -211,6 +211,8 @@ def read_train_json(path, debug_mode, debug_len):
         for p in topic['paragraphs']:
             qas = p['qas']
             context = p['context']
+            if delete_long_context and len(nltk.word_tokenize(context)) > 300:
+                continue
             context_list.append((context, len(qas)))
             for qa in qas:
                 question = qa["question"]

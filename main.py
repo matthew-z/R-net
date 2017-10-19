@@ -9,19 +9,17 @@ from utils import prepare_data, get_args
 
 def main():
     prepare_data()
-
-    DEBUG = True
-
     args = get_args()
-
-    train_cache = "./data/cache/SQuAD%s.pkl" % ("_debug" if DEBUG else "")
-    dev_cache = "./data/cache/SQuAD_dev%s.pkl" % ("_debug" if DEBUG else "")
+    is_debug = args.debug
+    print("DEBUG Mode: ", "On" if is_debug else "Off")
+    train_cache = "./data/cache/SQuAD%s.pkl" % ("_debug" if is_debug else "")
+    dev_cache = "./data/cache/SQuAD_dev%s.pkl" % ("_debug" if is_debug else "")
 
     train_json = args.train_json
     dev_json = args.dev_json
 
-    train = read_dataset(train_json, train_cache, DEBUG)
-    dev = read_dataset(dev_json, dev_cache, DEBUG)
+    train = read_dataset(train_json, train_cache, is_debug)
+    dev = read_dataset(dev_json, dev_cache, is_debug, split="dev")
 
     dev_dataloader = dev.get_dataloader(args.batch_size_dev)
     train_dataloader = train.get_dataloader(args.batch_size, shuffle=True)
@@ -73,13 +71,13 @@ def main():
     trainer.train(10)
 
 
-def read_dataset(json_file, cache_file, DEBUG=False, split="train"):
+def read_dataset(json_file, cache_file, is_debug=False, split="train"):
     if os.path.isfile(cache_file):
         dataset = pickle.load(open(cache_file, "rb"))
     else:
         print("building %s dataset" % split)
         from dataset import SQuAD
-        dataset = SQuAD(json_file, debug_mode=DEBUG, split=split)
+        dataset = SQuAD(json_file, debug_mode=is_debug, split=split)
         pickle.dump(dataset, open(cache_file, "wb"))
     return dataset
 

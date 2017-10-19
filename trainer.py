@@ -56,11 +56,12 @@ class Trainer(object):
             last_step = -1
             last_time = time.time()
 
-            for batch_train in enumerate(self.dataloader_train):
+            for batch_idx, batch_train in enumerate(self.dataloader_train):
                 loss, acc = self._forward(batch_train)
                 global_loss += loss.data[0]
                 global_acc += acc
                 self._update_param(loss)
+
 
                 if step % 10 == 0:
                     used_time = time.time() - last_time
@@ -88,19 +89,20 @@ class Trainer(object):
             log_value('dev/f1', f1, step)
             log_value('dev/EM', exact_match, step)
 
-            torch.save(self.model.cpu(), open("trained_model", "wb"))
+            torch.save(self.model.cpu, "trained_model")
             if f1 > self.model.current_score:
                 self.model.current_score = f1
-                torch.save(self.model.cpu(), open("best_trained_model", "wb"))
+                torch.save(self.model, "best_trained_model")
 
     def eval(self):
         self.model.eval()
         pred_result = {}
         for step, batch in enumerate(self.dataloader_dev):
+
             question_ids, words, questions, passages, passage_tokenized = batch
-            words.to_variable()
-            questions.to_variable()
-            passages.to_variable()
+            words.to_variable(volatile=True)
+            questions.to_variable(volatile=True)
+            passages.to_variable(volatile=True)
             begin_, end_ = self.model(words, questions, passages)  # batch x seq
 
             _, pred_begin = torch.max(begin_, 1)
@@ -108,11 +110,10 @@ class Trainer(object):
 
             pred = torch.stack([pred_begin, pred_end], dim=1)
 
-            for i, (begin, end) in enumerate(pred):
-                ans = passage_tokenized[begin:end + 1]
+            for i, (begin, end) in enumerate(pred.cpu().data.numpy()):
+                ans = passage_tokenized[i][begin:end + 1]
                 qid = question_ids[i]
                 pred_result[qid] = " ".join(ans)
-
         self.model.train()
         return evaluate(self.dev_dataset, pred_result)
 
