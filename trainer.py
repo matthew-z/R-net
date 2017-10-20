@@ -82,6 +82,12 @@ class Trainer(object):
 
                 step += 1
 
+            if epoch < 10:
+                continue
+
+            if epoch % 2 != 0:
+                continue
+
             exact_match, f1 = self.eval()
             print("exact_match: %f)" % exact_match, flush=True)
             print("f1: %f)" % f1, flush=True)

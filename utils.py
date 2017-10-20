@@ -21,6 +21,29 @@ URL = {
 }
 
 
+
+def get_args():
+    parser = ArgumentParser(description='PyTorch R-net')
+    parser.add_argument('--epochs', type=int, default=50)
+    parser.add_argument('--batch_size', type=int, default=64)
+    parser.add_argument('--batch_size_dev', type=int, default=64)
+    parser.add_argument('--debug', type=bool, default=False)
+    parser.add_argument('--resume_snapshot', type=str, default='')
+    parser.add_argument('--train_json', type=str, default="./data/squad/train-v1.1.json")
+    parser.add_argument('--dev_json', type=str, default="./data/squad/dev-v1.1.json")
+    parser.add_argument('--update_word_embedding', type=bool, default=False)
+    parser.add_argument('--update_char_embedding', type=bool, default=True)
+    parser.add_argument('--hidden_size', type=int, default=75)
+    parser.add_argument('--attention_size', type=int, default=75)
+    parser.add_argument('--dropout', type=float, default=0.2)
+    parser.add_argument('--residual', type=bool, default=False)
+    parser.add_argument('--bidirectional', type=bool, default=True)
+    parser.add_argument('--num_layers', type=int, default=3)
+
+    args = parser.parse_args()
+    return args
+
+
 def reporthook(t):
     """https://github.com/tqdm/tqdm"""
     last_b = [0]
@@ -176,29 +199,6 @@ def maybe_download(url, download_path, filename):
         except AttributeError as e:
             print("An error occurred when downloading the file! Please get the dataset using a browser.")
             raise e
-
-
-def get_args():
-    parser = ArgumentParser(description='PyTorch R-net')
-    parser.add_argument('--epochs', type=int, default=50)
-    parser.add_argument('--batch_size', type=int, default=16)
-    parser.add_argument('--batch_size_dev', type=int, default=20)
-    parser.add_argument('--debug', type=bool, default=False)
-    parser.add_argument('--resume_snapshot', type=str, default='')
-    parser.add_argument('--train_json', type=str, default="./data/squad/train-v1.1.json")
-    parser.add_argument('--dev_json', type=str, default="./data/squad/dev-v1.1.json")
-    parser.add_argument('--update_word_embedding', type=bool, default=False)
-    parser.add_argument('--update_char_embedding', type=bool, default=True)
-    parser.add_argument('--hidden_size', type=int, default=75)
-    parser.add_argument('--attention_size', type=int, default=75)
-    parser.add_argument('--dropout', type=float, default=0.2)
-    parser.add_argument('--residual', type=bool, default=False)
-    parser.add_argument('--bidirectional', type=bool, default=True)
-    parser.add_argument('--num_layers', type=int, default=3)
-
-    args = parser.parse_args()
-    return args
-
 
 def read_train_json(path, debug_mode, debug_len, delete_long_context=True):
     with open(path) as fin:
