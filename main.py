@@ -66,9 +66,10 @@ def main():
     trainer = Trainer(train_dataloader, dev_dataloader,
                       char_embedding_config, word_embedding_config,
                       sentence_encoding_config, pair_encoding_config,
-                      self_matching_config, pointer_config, dev_dataset_path=args.dev_json)
+                      self_matching_config, pointer_config, resume=args.resume,
+                      resume_snapshot_path=args.resume_snapshot_path, dev_dataset_path=args.dev_json)
 
-    trainer.train(10)
+    trainer.train(args.epoch_num)
 
 
 def read_dataset(json_file, cache_file, is_debug=False, split="train"):

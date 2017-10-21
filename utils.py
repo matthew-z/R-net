@@ -24,11 +24,12 @@ URL = {
 
 def get_args():
     parser = ArgumentParser(description='PyTorch R-net')
-    parser.add_argument('--epochs', type=int, default=50)
+    parser.add_argument('--epoch_num', type=int, default=50)
     parser.add_argument('--batch_size', type=int, default=64)
     parser.add_argument('--batch_size_dev', type=int, default=64)
     parser.add_argument('--debug', type=bool, default=False)
-    parser.add_argument('--resume_snapshot', type=str, default='')
+    parser.add_argument('--resume_snapshot_path', type=str, default="trained_model")
+    parser.add_argument('--resume', type=bool, default=False)
     parser.add_argument('--train_json', type=str, default="./data/squad/train-v1.1.json")
     parser.add_argument('--dev_json', type=str, default="./data/squad/dev-v1.1.json")
     parser.add_argument('--update_word_embedding', type=bool, default=False)

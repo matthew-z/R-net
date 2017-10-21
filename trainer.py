@@ -15,7 +15,8 @@ from squad_eval import evaluate
 class Trainer(object):
     def __init__(self, dataloader_train, dataloader_dev, char_embedding_config, word_embedding_config,
                  sentence_encoding_config,
-                 pair_encoding_config, self_matching_config, pointer_config, resume=False,
+                 pair_encoding_config, self_matching_config, pointer_config,
+                 resume=False, resume_snapshot_path="trained_model",
                  dev_dataset_path="./data/squad/dev-v1.1.json"):
 
         # for validate
@@ -33,8 +34,12 @@ class Trainer(object):
         if not resume:
             self.model = RNet(char_embedding_config, word_embedding_config, sentence_encoding_config,
                               pair_encoding_config, self_matching_config, pointer_config)
-        elif os:
-            self.model = torch.load(open("data/trained_model", "rb"))
+        else:
+            if os.path.exists(resume_snapshot_path):
+                self.model = torch.load(open(resume_snapshot_path, "rb"))
+            else:
+                raise FileNotFoundError(
+                    "resume snapshot not found at: %s" % resume_snapshot_path)
 
         if torch.cuda.is_available():
             self.model = self.model.cuda()
@@ -43,7 +48,8 @@ class Trainer(object):
 
         self.loss_fn = torch.nn.CrossEntropyLoss()
 
-        self.parameters_trainable = list(filter(lambda p: p.requires_grad, self.model.parameters()))
+        self.parameters_trainable = list(
+            filter(lambda p: p.requires_grad, self.model.parameters()))
         self.optimizer = optim.Adadelta(self.parameters_trainable, rho=0.95)
 
         configure("log/0826", flush_secs=5)
@@ -62,11 +68,11 @@ class Trainer(object):
                 global_acc += acc
                 self._update_param(loss)
 
-
                 if step % 10 == 0:
                     used_time = time.time() - last_time
                     step_num = step - last_step
-                    print("step %d / %d of epoch %d)" % (step, len(self.dataloader_train), epoch), flush=True)
+                    print("step %d / %d of epoch %d)" % (batch_idx,
+                                                         len(self.dataloader_train), epoch), flush=True)
                     print("loss: ", global_loss / step_num, flush=True)
                     print("acc: ", global_acc / step_num, flush=True)
                     print("speed: %f examples/sec \n\n" %
@@ -82,9 +88,6 @@ class Trainer(object):
 
                 step += 1
 
-            if epoch < 10:
-                continue
-
             if epoch % 2 != 0:
                 continue
 
@@ -95,7 +98,7 @@ class Trainer(object):
             log_value('dev/f1', f1, step)
             log_value('dev/EM', exact_match, step)
 
-            torch.save(self.model.cpu, "trained_model")
+            torch.save(self.model, "trained_model")
             if f1 > self.model.current_score:
                 self.model.current_score = f1
                 torch.save(self.model, "best_trained_model")
@@ -103,13 +106,14 @@ class Trainer(object):
     def eval(self):
         self.model.eval()
         pred_result = {}
-        for step, batch in enumerate(self.dataloader_dev):
+        for _, batch in enumerate(self.dataloader_dev):
 
             question_ids, words, questions, passages, passage_tokenized = batch
             words.to_variable(volatile=True)
             questions.to_variable(volatile=True)
             passages.to_variable(volatile=True)
-            begin_, end_ = self.model(words, questions, passages)  # batch x seq
+            begin_, end_ = self.model(
+                words, questions, passages)  # batch x seq
 
             _, pred_begin = torch.max(begin_, 1)
             _, pred_end = torch.max(end_, 1)
@@ -125,7 +129,7 @@ class Trainer(object):
 
     def _forward(self, batch):
 
-        question_ids, words, questions, passages, answers, answers_texts = batch
+        _, words, questions, passages, answers, _ = batch
         batch_num = questions.tensor.size(0)
 
         words.to_variable()
@@ -143,7 +147,8 @@ class Trainer(object):
         _, pred_begin = torch.max(begin_, 1)
         _, pred_end = torch.max(end_, 1)
 
-        exact_correct_num = torch.sum((pred_begin == begin) * (pred_end == end))
+        exact_correct_num = torch.sum(
+            (pred_begin == begin) * (pred_end == end))
         acc = exact_correct_num.data[0] / batch_num
 
         return loss, acc
