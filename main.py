@@ -77,7 +77,7 @@ def read_dataset(json_file, cache_file, is_debug=False, split="train"):
         dataset = pickle.load(open(cache_file, "rb"))
     else:
         print("building %s dataset" % split)
-        from dataset import SQuAD
+        from utils.dataset import SQuAD
         dataset = SQuAD(json_file, debug_mode=is_debug, split=split)
         pickle.dump(dataset, open(cache_file, "wb"))
     return dataset

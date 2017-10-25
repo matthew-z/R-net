@@ -2,10 +2,10 @@ import torch
 from torch import nn
 from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
 
-from dataset import Documents, Words
-from .attention import AttentionPooling
-from .embedding import CharLevelEmbedding
-from .recurrent import RNN, AttentionEncoder, AttentionEncoderCell, StackedCell
+from utils.dataset import Documents, Words
+from .modules.attention import AttentionPooling
+from .modules.embedding import CharLevelEmbedding
+from .modules.recurrent import RNN, AttentionEncoder, AttentionEncoderCell, StackedCell
 
 
 class PairEncoder(nn.Module):

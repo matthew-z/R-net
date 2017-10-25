@@ -8,8 +8,8 @@ from tensorboard_logger import configure, log_value
 from torch import optim
 from torch.autograd import Variable
 
-from r_net.model import RNet
-from squad_eval import evaluate
+from models.r_net import RNet
+from utils.squad_eval import evaluate
 
 
 class Trainer(object):

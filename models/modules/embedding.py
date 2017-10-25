@@ -3,7 +3,7 @@
 from torch import nn
 from torch.nn.utils.rnn import pack_padded_sequence
 
-from r_net.recurrent import RNN
+from models.modules.recurrent import RNN
 
 
 class CharLevelEmbedding(nn.Module):
