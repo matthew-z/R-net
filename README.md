@@ -24,6 +24,5 @@ python main.py --batch_size 32
 
 **Current Problems**
 
-The next stage is to modify the code to train the model with mutiple GPU (e.g. 1 GPU per layer)
-
+This implementation got very poor performance on validation data. I am working on this.
 
