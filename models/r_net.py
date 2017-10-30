@@ -179,12 +179,11 @@ class RNet(nn.Module):
 
     def forward(self, distinct_words: Words, question: Documents, passage: Documents):
         # embed words using char-level and word-level and concat them
-        # import ipdb; ipdb.set_trace()
         embedded_question, embedded_passage = self.embedding(distinct_words, question, passage)
         passage_pack, question_pack = self._sentence_encoding(embedded_passage, embedded_question,
                                                               passage, question)
 
-        question_encoded_padded_sorted, _ = pad_packed_sequence(question_pack)  # (Seq, Batch, encode_size), lengths
+        question_encoded_padded_sorted, _ = pad_packed_sequence(question_pack)  # (seq, batch, encode_size), lengths
         question_encoded_padded_original = question.restore_original_order(question_encoded_padded_sorted, batch_dim=1)
         # question and context has same ordering
         question_pad_in_passage_sorted_order = passage.to_sorted_order(question_encoded_padded_original,

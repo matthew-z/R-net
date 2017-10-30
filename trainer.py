@@ -3,6 +3,7 @@ import os
 import sys
 import time
 
+import datetime
 import torch
 from tensorboard_logger import configure, log_value
 from torch import optim
@@ -10,7 +11,6 @@ from torch.autograd import Variable
 
 from models.r_net import RNet
 from utils.squad_eval import evaluate
-
 
 class Trainer(object):
     def __init__(self, dataloader_train, dataloader_dev, char_embedding_config, word_embedding_config,
@@ -52,14 +52,15 @@ class Trainer(object):
             filter(lambda p: p.requires_grad, self.model.parameters()))
         self.optimizer = optim.Adadelta(self.parameters_trainable, rho=0.95)
 
-        configure("log/0826", flush_secs=5)
+        time_stamp = datetime.datetime.now().strftime('%b-%d_%H-%M')
+        configure("log/%s"%time_stamp, flush_secs=5)
 
     def train(self, epoch_num):
         step = 0
         for epoch in range(epoch_num):
             global_loss = 0.0
             global_acc = 0.0
-            last_step = -1
+            last_step = step - 1
             last_time = time.time()
 
             for batch_idx, batch_train in enumerate(self.dataloader_train):
@@ -71,8 +72,7 @@ class Trainer(object):
                 if step % 10 == 0:
                     used_time = time.time() - last_time
                     step_num = step - last_step
-                    print("step %d / %d of epoch %d)" % (batch_idx,
-                                                         len(self.dataloader_train), epoch), flush=True)
+                    print("step %d / %d of epoch %d)" % (batch_idx, len(self.dataloader_train), epoch), flush=True)
                     print("loss: ", global_loss / step_num, flush=True)
                     print("acc: ", global_acc / step_num, flush=True)
                     print("speed: %f examples/sec \n\n" %
@@ -85,10 +85,9 @@ class Trainer(object):
                     global_acc = 0.0
                     last_step = step
                     last_time = time.time()
-
                 step += 1
 
-            if epoch % 2 != 0:
+            if epoch % 2 != 0 or epoch < 5:
                 continue
 
             exact_match, f1 = self.eval()

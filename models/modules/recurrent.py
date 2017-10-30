@@ -2,7 +2,7 @@ import torch
 from torch import nn
 from torch.nn.utils.rnn import pad_packed_sequence, pack_padded_sequence, PackedSequence
 
-from utils import get_rnn
+from utils.utils import get_rnn
 
 
 class RNN(nn.Module):

@@ -9,7 +9,7 @@ from torch.autograd import Variable
 from torch.utils.data import DataLoader
 from torch.utils.data import Dataset
 
-from utils import read_train_json, get_counter, read_dev_json, read_embedding, tokenized_by_answer, sort_idx
+from utils.utils import read_train_json, get_counter, read_dev_json, read_embedding, tokenized_by_answer, sort_idx
 
 
 def padding(seqs, pad, batch_first=False):

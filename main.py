@@ -4,14 +4,14 @@ import pickle
 import torch
 
 from trainer import Trainer
-from utils import prepare_data, get_args
+from utils.utils import prepare_data, get_args
 
 
 def main():
     prepare_data()
     args = get_args()
     is_debug = args.debug
-    print("DEBUG Mode: ", "On" if is_debug else "Off")
+    print("DEBUG Mode is ", "On" if is_debug else "Off")
     train_cache = "./data/cache/SQuAD%s.pkl" % ("_debug" if is_debug else "")
     dev_cache = "./data/cache/SQuAD_dev%s.pkl" % ("_debug" if is_debug else "")
 
@@ -70,7 +70,6 @@ def main():
                       resume_snapshot_path=args.resume_snapshot_path, dev_dataset_path=args.dev_json)
 
     trainer.train(args.epoch_num)
-
 
 def read_dataset(json_file, cache_file, is_debug=False, split="train"):
     if os.path.isfile(cache_file):

@@ -13,6 +13,7 @@ import torch
 from six.moves.urllib.request import urlretrieve
 from tqdm import trange, tqdm
 
+
 URL = {
     'glove.42B': 'http://nlp.stanford.edu/data/glove.42B.300d.zip',
     'glove.840B': 'http://nlp.stanford.edu/data/glove.840B.300d.zip',
@@ -25,8 +26,8 @@ URL = {
 def get_args():
     parser = ArgumentParser(description='PyTorch R-net')
     parser.add_argument('--epoch_num', type=int, default=50)
-    parser.add_argument('--batch_size', type=int, default=64)
-    parser.add_argument('--batch_size_dev', type=int, default=64)
+    parser.add_argument('--batch_size', type=int, default=128)
+    parser.add_argument('--batch_size_dev', type=int, default=128)
     parser.add_argument('--debug', type=bool, default=False)
     parser.add_argument('--resume_snapshot_path', type=str, default="trained_model")
     parser.add_argument('--resume', type=bool, default=False)
@@ -370,6 +371,8 @@ def prepare_data():
     make_dirs("data/embedding/word")
     make_dirs("data/squad")
     make_dirs("data/trained_model")
+
+    nltk.download("punkt")
 
     train_filename = "train-v1.1.json"
     dev_filename = "dev-v1.1.json"
