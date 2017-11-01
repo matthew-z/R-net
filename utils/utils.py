@@ -6,13 +6,13 @@ import random
 import zipfile
 from argparse import ArgumentParser
 from collections import Counter
+from os.path import dirname, abspath
 
 import nltk
 import six
 import torch
 from six.moves.urllib.request import urlretrieve
 from tqdm import trange, tqdm
-
 
 URL = {
     'glove.42B': 'http://nlp.stanford.edu/data/glove.42B.300d.zip',
@@ -26,8 +26,8 @@ URL = {
 def get_args():
     parser = ArgumentParser(description='PyTorch R-net')
     parser.add_argument('--epoch_num', type=int, default=50)
-    parser.add_argument('--batch_size', type=int, default=128)
-    parser.add_argument('--batch_size_dev', type=int, default=128)
+    parser.add_argument('--batch_size', type=int, default=24)
+    parser.add_argument('--batch_size_dev', type=int, default=24)
     parser.add_argument('--debug', type=bool, default=False)
     parser.add_argument('--resume_snapshot_path', type=str, default="trained_model")
     parser.add_argument('--resume', type=bool, default=False)
@@ -41,6 +41,7 @@ def get_args():
     parser.add_argument('--residual', type=bool, default=False)
     parser.add_argument('--bidirectional', type=bool, default=True)
     parser.add_argument('--num_layers', type=int, default=3)
+    parser.add_argument('--app_path', type=str, default=dirname(dirname(abspath(__file__))))
 
     args = parser.parse_args()
     return args
@@ -130,7 +131,7 @@ def load_word_vectors(root, wv_type, dim):
             raise RuntimeError('no word vectors of requested dimension found')
         return load_word_vectors(root, wv_type, dim)
     else:
-        raise RuntimeError('unable to load word vectors')
+        raise RuntimeError('unable to load word vectors %s from %s' % (wv_type, root))
 
     wv_tokens, wv_arr, wv_size = [], array.array('d'), None
     if cm is not None:
@@ -202,20 +203,19 @@ def maybe_download(url, download_path, filename):
             print("An error occurred when downloading the file! Please get the dataset using a browser.")
             raise e
 
-def read_train_json(path, debug_mode, debug_len, delete_long_context=True):
+
+def read_train_json(path, debug_mode, debug_len, delete_long_context=True, longest_context=300):
     with open(path) as fin:
         data = json.load(fin)
     examples = []
-    context_list = []
 
     for topic in data["data"]:
         title = topic["title"]
         for p in topic['paragraphs']:
             qas = p['qas']
-            context = p['context']
-            if delete_long_context and len(nltk.word_tokenize(context)) > 300:
+            passage = p['context']
+            if delete_long_context and len(nltk.word_tokenize(passage)) > longest_context:
                 continue
-            context_list.append((context, len(qas)))
             for qa in qas:
                 question = qa["question"]
                 answers = qa["answers"]
@@ -225,7 +225,7 @@ def read_train_json(path, debug_mode, debug_len, delete_long_context=True):
                     answer_text = ans["text"]
                     e = RawExample()
                     e.title = title
-                    e.context_id = len(context_list) - 1
+                    e.passage = passage
                     e.question = question
                     e.question_id = question_id
                     e.answer_start = answer_start
@@ -233,9 +233,9 @@ def read_train_json(path, debug_mode, debug_len, delete_long_context=True):
                     examples.append(e)
 
                     if debug_mode and len(examples) >= debug_len:
-                        return examples, context_list
+                        return examples
 
-    return examples, context_list
+    return examples
 
 
 def get_counter(*seqs):
@@ -256,14 +256,12 @@ def read_dev_json(path, debug_mode, debug_len):
     with open(path) as fin:
         data = json.load(fin)
     examples = []
-    context_list = []
 
     for topic in data["data"]:
         title = topic["title"]
         for p in topic['paragraphs']:
             qas = p['qas']
             context = p['context']
-            context_list.append((context, len(qas)))
 
             for qa in qas:
                 question = qa["question"]
@@ -286,7 +284,7 @@ def read_dev_json(path, debug_mode, debug_len):
 
                 e = RawExample()
                 e.title = title
-                e.context_id = len(context_list) - 1
+                e.passage = context
                 e.question = question
                 e.question_id = question_id
                 e.answer_start = answer_start
@@ -294,9 +292,9 @@ def read_dev_json(path, debug_mode, debug_len):
                 examples.append(e)
 
                 if debug_mode and len(examples) >= debug_len:
-                    return examples, context_list
+                    return examples
 
-    return examples, context_list
+    return examples
 
 
 def tokenized_by_answer(context, answer_text, answer_start, tokenizer):
@@ -339,8 +337,7 @@ def truncate_word_counter(word_counter, max_symbols):
     return {word: freq for freq, word in words[:max_symbols]}
 
 
-def read_embedding(word_embedding):
-    root, word_type, dim = word_embedding
+def read_embedding(root, word_type, dim):
     wv_dict, wv_vectors, wv_size = load_word_vectors(root, word_type, dim)
     return wv_dict, wv_vectors, wv_size
 

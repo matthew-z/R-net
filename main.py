@@ -4,34 +4,71 @@ import pickle
 import torch
 
 from trainer import Trainer
-from utils.utils import prepare_data, get_args
+from utils.utils import prepare_data, get_args, read_embedding
+
+
+def read_vocab(vocab_config):
+    """
+    :param counter: counter of words in dataset
+    :param vocab_config: word_embedding config: (root, word_type, dim)
+    :return: itos, stoi, vectors
+    """
+    wv_dict, wv_vectors, wv_size = read_embedding(vocab_config["embedding_root"],
+                                                  vocab_config["embedding_type"],
+                                                  vocab_config["embedding_dim"])
+
+    # embedding size = glove vector size
+    embed_size = wv_vectors.size(1)
+    print("word embedding size: %d" % embed_size)
+
+    itos = vocab_config['specials'][:]
+    stoi = {}
+    for w in wv_dict:
+        itos.append(w)
+
+    for idx, word in enumerate(itos):
+        stoi[word] = idx
+
+    vectors = torch.zeros([len(itos), embed_size])
+
+    for word, idx in wv_dict.items():
+        vectors[stoi.get(word, vocab_config["UNK"]), :wv_size].copy_(wv_vectors[idx])
+    return itos, stoi, vectors
 
 
 def main():
-    prepare_data()
     args = get_args()
-    is_debug = args.debug
-    print("DEBUG Mode is ", "On" if is_debug else "Off")
-    train_cache = "./data/cache/SQuAD%s.pkl" % ("_debug" if is_debug else "")
-    dev_cache = "./data/cache/SQuAD_dev%s.pkl" % ("_debug" if is_debug else "")
+    word_vocab_config = {
+        "UNK": 0,
+        "PAD": 1,
+        "start": 2,
+        "end": 3,
+        "insert_start": "<SOS>",
+        "insert_end": "<EOS>",
+        "tokenization": "nltk",
+        "specials": ["UNK", "PAD", "<SOS>", "<EOS>"],
+        "embedding_root": os.path.join(args.app_path, "data", "embedding", "word"),
+        "embedding_type": "glove.840B",
+        "embedding_dim": 300
+    }
 
-    train_json = args.train_json
-    dev_json = args.dev_json
+    char_vocab_config = word_vocab_config.copy()
+    char_vocab_config["embedding_root"] = os.path.join(args.app_path, "data", "embedding", "char")
+    char_vocab_config["embedding_type"] = "glove_char.840B"
 
-    train = read_dataset(train_json, train_cache, is_debug)
-    dev = read_dataset(dev_json, dev_cache, is_debug, split="dev")
+    # TODO: build vocab out of dataset
+    # build vocab
+    itos, stoi, wv_vec = read_vocab(word_vocab_config)
+    itoc, ctoi, cv_vec = read_vocab(char_vocab_config)
 
-    dev_dataloader = dev.get_dataloader(args.batch_size_dev)
-    train_dataloader = train.get_dataloader(args.batch_size, shuffle=True)
-
-    char_embedding_config = {"embedding_weights": train.cv_vec,
-                             "padding_idx": train.PAD,
+    char_embedding_config = {"embedding_weights": cv_vec,
+                             "padding_idx": word_vocab_config["UNK"],
                              "update": args.update_char_embedding,
                              "bidirectional": args.bidirectional,
                              "cell_type": "gru", "output_dim": 300}
 
-    word_embedding_config = {"embedding_weights": train.wv_vec,
-                             "padding_idx": train.PAD,
+    word_embedding_config = {"embedding_weights": wv_vec,
+                             "padding_idx": word_vocab_config["UNK"],
                              "update": args.update_word_embedding}
 
     sentence_encoding_config = {"hidden_size": args.hidden_size,
@@ -63,21 +100,38 @@ def main():
                       "residual": args.residual,
                       "rnn_cell": torch.nn.GRUCell}
 
+    prepare_data()
+    is_debug = args.debug
+    print("DEBUG Mode is ", "On" if is_debug else "Off", flush=True)
+    train_cache = "./data/cache/SQuAD%s.pkl" % ("_debug" if is_debug else "")
+    dev_cache = "./data/cache/SQuAD_dev%s.pkl" % ("_debug" if is_debug else "")
+
+    train_json = args.train_json
+    dev_json = args.dev_json
+
+    train = read_dataset(train_json, itos, stoi, itoc, ctoi, train_cache, is_debug)
+    dev = read_dataset(dev_json, itos, stoi, itoc, ctoi, dev_cache, is_debug, split="dev")
+
+    dev_dataloader = dev.get_dataloader(args.batch_size_dev)
+    train_dataloader = train.get_dataloader(args.batch_size, shuffle=True)
+
     trainer = Trainer(train_dataloader, dev_dataloader,
                       char_embedding_config, word_embedding_config,
                       sentence_encoding_config, pair_encoding_config,
                       self_matching_config, pointer_config, resume=args.resume,
                       resume_snapshot_path=args.resume_snapshot_path, dev_dataset_path=args.dev_json)
-
     trainer.train(args.epoch_num)
 
-def read_dataset(json_file, cache_file, is_debug=False, split="train"):
+
+def read_dataset(json_file, itos, stoi, itoc, ctoi, cache_file, is_debug=False, split="train"):
     if os.path.isfile(cache_file):
+        print("Read built %s dataset from %s" % (split, cache_file), flush=True)
         dataset = pickle.load(open(cache_file, "rb"))
+        assert (dataset.itos == itos)
     else:
-        print("building %s dataset" % split)
+        print("building %s dataset" % split, flush=True)
         from utils.dataset import SQuAD
-        dataset = SQuAD(json_file, debug_mode=is_debug, split=split)
+        dataset = SQuAD(json_file, itos, stoi, itoc, ctoi, debug_mode=is_debug, split=split)
         pickle.dump(dataset, open(cache_file, "wb"))
     return dataset
 

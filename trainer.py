@@ -1,9 +1,9 @@
+import datetime
 import json
 import os
 import sys
 import time
 
-import datetime
 import torch
 from tensorboard_logger import configure, log_value
 from torch import optim
@@ -11,6 +11,7 @@ from torch.autograd import Variable
 
 from models.r_net import RNet
 from utils.squad_eval import evaluate
+
 
 class Trainer(object):
     def __init__(self, dataloader_train, dataloader_dev, char_embedding_config, word_embedding_config,
@@ -128,16 +129,16 @@ class Trainer(object):
 
     def _forward(self, batch):
 
-        _, words, questions, passages, answers, _ = batch
+        _, questions, passages, answers, _ = batch
         batch_num = questions.tensor.size(0)
 
-        words.to_variable()
         questions.to_variable()
         passages.to_variable()
         answers = Variable(answers)
+
         if torch.cuda.is_available():
             answers = answers.cuda()
-        begin_, end_ = self.model(words, questions, passages)  # batch x seq
+        begin_, end_ = self.model(questions, passages)  # batch x seq
         assert begin_.size(0) == batch_num
 
         begin, end = answers[:, 0], answers[:, 1]
