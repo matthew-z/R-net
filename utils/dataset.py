@@ -71,17 +71,17 @@ class Documents(object):
 
 
 class SQuAD(Dataset):
-    def __init__(self, path, itos, stoi, itoc, ctoi, tokenizer="nltk", split="train",
+    def __init__(self, path, stoi, ctoi, tokenizer="nltk", split="train",
                  debug_mode=False, debug_len=50):
 
         self.insert_start = stoi.get("<SOS>", None)
         self.insert_end = stoi.get("<EOS>", None)
-        self.UNK = stoi.get("UNK", None)
-        self.PAD = stoi.get("PAD", None)
-        self.itos = itos
+        self.UNK = stoi.get("<UNK>", None)
+        self.PAD = stoi.get("<PAD>", None)
         self.stoi = stoi
         self.ctoi = ctoi
-        self.itoc = itoc
+        self.itos = {v:k for k, v in stoi.items()}
+        self.itoc = {v:k for k, v in ctoi.items()}
         self.split = split
         self._set_tokenizer(tokenizer)
 
@@ -98,16 +98,15 @@ class SQuAD(Dataset):
 
         for e in self.examples:
             e.tokenized_question = self.tokenizer(e.question)
-            e.numeralized_question = self._numeralize_word_seq(e.question, self.stoi)
-            e.numeralized_passage = self._numeralize_word_seq(e.passage, self.stoi)
+            e.numeralized_question = self._numeralize_word_seq(e.tokenized_question, self.stoi)
+            e.numeralized_passage = self._numeralize_word_seq(e.tokenized_passage, self.stoi)
             e.numeralized_question_char = self._char_level_numeralize(e.tokenized_question)
             e.numeralized_passage_char = self._char_level_numeralize(e.tokenized_passage)
 
     def _tokenize_passage_with_answer_for_train(self):
         for example in self.examples:
-            tokenized_passage, answer_start, answer_end = tokenized_by_answer(example.passage, example.answer_text,
+            example.tokenized_passage, answer_start, answer_end = tokenized_by_answer(example.passage, example.answer_text,
                                                                               example.answer_start, self.tokenizer)
-            example.tokenized_passage = tokenized_passage
             example.answer_position = (answer_start, answer_end)
 
     def _char_level_numeralize(self, tokenized_doc):
@@ -130,11 +129,11 @@ class SQuAD(Dataset):
     def __getitem__(self, idx):
         item = self.examples[idx]
         if self.split == "train":
-            return (item.question_id, item.numeralized_question, item.numeralized_question_char,
+            return (item, item.question_id, item.numeralized_question, item.numeralized_question_char,
                     item.numeralized_passage, item.numeralized_passage_char,
                     item.answer_position, item.answer_text, item.tokenized_passage)
         else:
-            return (item.question_id, item.numeralized_question, item.numeralized_question_char,
+            return (item, item.question_id, item.numeralized_question, item.numeralized_question_char,
                     item.numeralized_passage, item.numeralized_passage_char,
                     item.tokenized_passage, item.tokenized_passage)
 
@@ -164,24 +163,24 @@ class SQuAD(Dataset):
 
         def collate(examples, this):
             if this.split == "train":
-                question_ids, questions, questions_char, passages, passages_char, answers_positions, answer_texts, passage_tokenized = zip(
+                items, question_ids, questions, questions_char, passages, passages_char, answers_positions, answer_texts, passage_tokenized = zip(
                     *examples)
             else:
-                question_ids, questions, questions_char, passages, passages_char, passage_tokenized = zip(*examples)
+                items, question_ids, questions, questions_char, passages, passages_char, passage_tokenized = zip(*examples)
 
             questions_tensor, question_lengths = padding(questions, this.PAD, batch_first=batch_first)
             passages_tensor, passage_lengths = padding(passages, this.PAD, batch_first=batch_first)
 
-            # TODO implement char level embedding
+            # TODO: implement char level embedding
 
-            questions = Documents(questions_tensor, question_lengths)
-            passages = Documents(passages_tensor, passage_lengths)
+            question_document = Documents(questions_tensor, question_lengths)
+            passages_document = Documents(passages_tensor, passage_lengths)
 
             if this.split == "train":
-                return question_ids, questions, passages, torch.LongTensor(answers_positions), answer_texts
+                return question_ids, question_document, passages_document, torch.LongTensor(answers_positions), answer_texts
 
             else:
-                return question_ids, questions, passages, passage_tokenized
+                return question_ids, question_document, passages_document, passage_tokenized
 
         return partial(collate, this=self)
 

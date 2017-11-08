@@ -26,8 +26,8 @@ URL = {
 def get_args():
     parser = ArgumentParser(description='PyTorch R-net')
     parser.add_argument('--epoch_num', type=int, default=50)
-    parser.add_argument('--batch_size', type=int, default=24)
-    parser.add_argument('--batch_size_dev', type=int, default=24)
+    parser.add_argument('--batch_size', type=int, default=64)
+    parser.add_argument('--batch_size_dev', type=int, default=64)
     parser.add_argument('--debug', type=bool, default=False)
     parser.add_argument('--resume_snapshot_path', type=str, default="trained_model")
     parser.add_argument('--resume', type=bool, default=False)

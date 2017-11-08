@@ -54,7 +54,7 @@ class Trainer(object):
         self.optimizer = optim.Adadelta(self.parameters_trainable, rho=0.95)
 
         time_stamp = datetime.datetime.now().strftime('%b-%d_%H-%M')
-        configure("log/%s"%time_stamp, flush_secs=5)
+        configure("log/%s%s"%("minimal_", time_stamp), flush_secs=5)
 
     def train(self, epoch_num):
         step = 0
@@ -76,11 +76,14 @@ class Trainer(object):
                     print("step %d / %d of epoch %d)" % (batch_idx, len(self.dataloader_train), epoch), flush=True)
                     print("loss: ", global_loss / step_num, flush=True)
                     print("acc: ", global_acc / step_num, flush=True)
+                    speed = self.dataloader_train.batch_size * step_num / used_time
                     print("speed: %f examples/sec \n\n" %
-                          (self.dataloader_train.batch_size * step_num / used_time), flush=True)
+                          (speed), flush=True)
 
-                    log_value('train/acc', global_acc / step_num, step)
+                    log_value('train/EM', global_acc / step_num, step)
                     log_value('train/loss', global_loss / step_num, step)
+                    log_value('train/speed', speed, step)
+
 
                     global_loss = 0.0
                     global_acc = 0.0

@@ -23,35 +23,37 @@ def read_vocab(vocab_config):
 
     itos = vocab_config['specials'][:]
     stoi = {}
-    for w in wv_dict:
-        itos.append(w)
+
+    itos.extend(list(w for w, i in sorted(filter(lambda t : t[1]<30000,  wv_dict.items()), key=lambda x:x[1])))
 
     for idx, word in enumerate(itos):
         stoi[word] = idx
 
     vectors = torch.zeros([len(itos), embed_size])
 
-    for word, idx in wv_dict.items():
-        vectors[stoi.get(word, vocab_config["UNK"]), :wv_size].copy_(wv_vectors[idx])
+    for word, idx in stoi.items():
+        if word not in wv_dict or word in vocab_config['specials']:
+            continue
+        vectors[idx, :wv_size].copy_(wv_vectors[wv_dict[word]])
     return itos, stoi, vectors
 
 
 def main():
     args = get_args()
     word_vocab_config = {
-        "UNK": 0,
-        "PAD": 1,
-        "start": 2,
-        "end": 3,
+        "<UNK>": 0,
+        "<PAD>": 1,
+        "<start>": 2,
+        "<end>": 3,
         "insert_start": "<SOS>",
         "insert_end": "<EOS>",
         "tokenization": "nltk",
-        "specials": ["UNK", "PAD", "<SOS>", "<EOS>"],
+        "specials": ["<UNK>", "<PAD>", "<SOS>", "<EOS>"],
         "embedding_root": os.path.join(args.app_path, "data", "embedding", "word"),
         "embedding_type": "glove.840B",
         "embedding_dim": 300
     }
-
+    print("Reading Vocab", flush=True)
     char_vocab_config = word_vocab_config.copy()
     char_vocab_config["embedding_root"] = os.path.join(args.app_path, "data", "embedding", "char")
     char_vocab_config["embedding_type"] = "glove_char.840B"
@@ -62,13 +64,13 @@ def main():
     itoc, ctoi, cv_vec = read_vocab(char_vocab_config)
 
     char_embedding_config = {"embedding_weights": cv_vec,
-                             "padding_idx": word_vocab_config["UNK"],
+                             "padding_idx": word_vocab_config["<UNK>"],
                              "update": args.update_char_embedding,
                              "bidirectional": args.bidirectional,
                              "cell_type": "gru", "output_dim": 300}
 
     word_embedding_config = {"embedding_weights": wv_vec,
-                             "padding_idx": word_vocab_config["UNK"],
+                             "padding_idx": word_vocab_config["<UNK>"],
                              "update": args.update_word_embedding}
 
     sentence_encoding_config = {"hidden_size": args.hidden_size,
@@ -131,7 +133,7 @@ def read_dataset(json_file, itos, stoi, itoc, ctoi, cache_file, is_debug=False, 
     else:
         print("building %s dataset" % split, flush=True)
         from utils.dataset import SQuAD
-        dataset = SQuAD(json_file, itos, stoi, itoc, ctoi, debug_mode=is_debug, split=split)
+        dataset = SQuAD(json_file, stoi, ctoi, debug_mode=is_debug, split=split)
         pickle.dump(dataset, open(cache_file, "wb"))
     return dataset
 
