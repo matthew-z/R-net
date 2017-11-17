@@ -1,3 +1,4 @@
+import datetime
 import json
 import os
 import sys
@@ -8,14 +9,15 @@ from tensorboard_logger import configure, log_value
 from torch import optim
 from torch.autograd import Variable
 
-from r_net.model import RNet
-from squad_eval import evaluate
+from models.r_net import RNet
+from utils.squad_eval import evaluate
 
 
 class Trainer(object):
     def __init__(self, dataloader_train, dataloader_dev, char_embedding_config, word_embedding_config,
                  sentence_encoding_config,
-                 pair_encoding_config, self_matching_config, pointer_config, resume=False,
+                 pair_encoding_config, self_matching_config, pointer_config,
+                 resume=False, resume_snapshot_path="trained_model",
                  dev_dataset_path="./data/squad/dev-v1.1.json"):
 
         # for validate
@@ -33,8 +35,12 @@ class Trainer(object):
         if not resume:
             self.model = RNet(char_embedding_config, word_embedding_config, sentence_encoding_config,
                               pair_encoding_config, self_matching_config, pointer_config)
-        elif os:
-            self.model = torch.load(open("data/trained_model", "rb"))
+        else:
+            if os.path.exists(resume_snapshot_path):
+                self.model = torch.load(open(resume_snapshot_path, "rb"))
+            else:
+                raise FileNotFoundError(
+                    "resume snapshot not found at: %s" % resume_snapshot_path)
 
         if torch.cuda.is_available():
             self.model = self.model.cuda()
@@ -43,17 +49,19 @@ class Trainer(object):
 
         self.loss_fn = torch.nn.CrossEntropyLoss()
 
-        self.parameters_trainable = list(filter(lambda p: p.requires_grad, self.model.parameters()))
+        self.parameters_trainable = list(
+            filter(lambda p: p.requires_grad, self.model.parameters()))
         self.optimizer = optim.Adadelta(self.parameters_trainable, rho=0.95)
 
-        configure("log/0826", flush_secs=5)
+        time_stamp = datetime.datetime.now().strftime('%b-%d_%H-%M')
+        configure("log/%s%s"%("minimal_", time_stamp), flush_secs=5)
 
     def train(self, epoch_num):
         step = 0
         for epoch in range(epoch_num):
             global_loss = 0.0
             global_acc = 0.0
-            last_step = -1
+            last_step = step - 1
             last_time = time.time()
 
             for batch_idx, batch_train in enumerate(self.dataloader_train):
@@ -62,30 +70,28 @@ class Trainer(object):
                 global_acc += acc
                 self._update_param(loss)
 
-
                 if step % 10 == 0:
                     used_time = time.time() - last_time
                     step_num = step - last_step
-                    print("step %d / %d of epoch %d)" % (step, len(self.dataloader_train), epoch), flush=True)
+                    print("step %d / %d of epoch %d)" % (batch_idx, len(self.dataloader_train), epoch), flush=True)
                     print("loss: ", global_loss / step_num, flush=True)
                     print("acc: ", global_acc / step_num, flush=True)
+                    speed = self.dataloader_train.batch_size * step_num / used_time
                     print("speed: %f examples/sec \n\n" %
-                          (self.dataloader_train.batch_size * step_num / used_time), flush=True)
+                          (speed), flush=True)
 
-                    log_value('train/acc', global_acc / step_num, step)
+                    log_value('train/EM', global_acc / step_num, step)
                     log_value('train/loss', global_loss / step_num, step)
+                    log_value('train/speed', speed, step)
+
 
                     global_loss = 0.0
                     global_acc = 0.0
                     last_step = step
                     last_time = time.time()
-
                 step += 1
 
-            if epoch < 10:
-                continue
-
-            if epoch % 2 != 0:
+            if epoch % 2 != 0 or epoch < 5:
                 continue
 
             exact_match, f1 = self.eval()
@@ -95,7 +101,7 @@ class Trainer(object):
             log_value('dev/f1', f1, step)
             log_value('dev/EM', exact_match, step)
 
-            torch.save(self.model.cpu, "trained_model")
+            torch.save(self.model, "trained_model")
             if f1 > self.model.current_score:
                 self.model.current_score = f1
                 torch.save(self.model, "best_trained_model")
@@ -103,13 +109,12 @@ class Trainer(object):
     def eval(self):
         self.model.eval()
         pred_result = {}
-        for step, batch in enumerate(self.dataloader_dev):
+        for _, batch in enumerate(self.dataloader_dev):
 
-            question_ids, words, questions, passages, passage_tokenized = batch
-            words.to_variable(volatile=True)
+            question_ids, questions, passages, passage_tokenized = batch
             questions.to_variable(volatile=True)
             passages.to_variable(volatile=True)
-            begin_, end_ = self.model(words, questions, passages)  # batch x seq
+            begin_, end_ = self.model(questions, passages)  # batch x seq
 
             _, pred_begin = torch.max(begin_, 1)
             _, pred_end = torch.max(end_, 1)
@@ -125,16 +130,16 @@ class Trainer(object):
 
     def _forward(self, batch):
 
-        question_ids, words, questions, passages, answers, answers_texts = batch
+        _, questions, passages, answers, _ = batch
         batch_num = questions.tensor.size(0)
 
-        words.to_variable()
         questions.to_variable()
         passages.to_variable()
         answers = Variable(answers)
+
         if torch.cuda.is_available():
             answers = answers.cuda()
-        begin_, end_ = self.model(words, questions, passages)  # batch x seq
+        begin_, end_ = self.model(questions, passages)  # batch x seq
         assert begin_.size(0) == batch_num
 
         begin, end = answers[:, 0], answers[:, 1]
@@ -143,7 +148,8 @@ class Trainer(object):
         _, pred_begin = torch.max(begin_, 1)
         _, pred_end = torch.max(end_, 1)
 
-        exact_correct_num = torch.sum((pred_begin == begin) * (pred_end == end))
+        exact_correct_num = torch.sum(
+            (pred_begin == begin) * (pred_end == end))
         acc = exact_correct_num.data[0] / batch_num
 
         return loss, acc

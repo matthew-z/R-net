@@ -3,10 +3,13 @@ from torch import nn
 from torch.nn import functional as F
 
 
-class AttentionEncoding(nn.Module):
-    def __init__(self):
-        self.batch_first = False
+class AttentionPooling(nn.Module):
+    def __init__(self, key_size, *query_sizes, attn_size=75, batch_first=False):
         super().__init__()
+        self.key_linear = nn.Linear(key_size, attn_size, bias=False)
+        self.query_linears = nn.ModuleList([nn.Linear(query_size, attn_size, bias=False) for query_size in query_sizes])
+        self.score_linear = nn.Linear(attn_size, 1, bias=False)
+        self.batch_first = batch_first
 
     def _calculate_scores(self, source, source_mask, score_unnormalized):
         """
@@ -27,15 +30,6 @@ class AttentionEncoding(nn.Module):
         n_batch, question_len, _ = source.size()
         output = score_unnormalized.view(n_batch, question_len)
         return output
-
-
-class AttentionPooling(AttentionEncoding):
-    def __init__(self, key_size, *query_sizes, attn_size=75, batch_first=False):
-        super().__init__()
-        self.key_linear = nn.Linear(key_size, attn_size, bias=False)
-        self.query_linears = nn.ModuleList([nn.Linear(query_size, attn_size, bias=False) for query_size in query_sizes])
-        self.score_linear = nn.Linear(attn_size, 1, bias=False)
-        self.batch_first = batch_first
 
     def forward(self, key, queries, key_mask=None, values=None, return_key_scores=False, broadcast_key=False):
         """

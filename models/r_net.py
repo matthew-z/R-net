@@ -2,10 +2,9 @@ import torch
 from torch import nn
 from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
 
-from dataset import Documents, Words
-from .attention import AttentionPooling
-from .embedding import CharLevelEmbedding
-from .recurrent import RNN, AttentionEncoder, AttentionEncoderCell, StackedCell
+from utils.dataset import Documents
+from .modules.attention import AttentionPooling
+from .modules.recurrent import RNN, AttentionEncoder, AttentionEncoderCell, StackedCell
 
 
 class PairEncoder(nn.Module):
@@ -59,17 +58,6 @@ class WordEmbedding(nn.Module):
 
     def __init__(self, char_embedding_config, word_embedding_config):
         super().__init__()
-        # set char level word embedding
-        char_embedding = char_embedding_config["embedding_weights"]
-
-        char_vocab_size, char_embedding_dim = char_embedding.size()
-        self.word_embedding_char_level = CharLevelEmbedding(char_vocab_size, char_embedding, char_embedding_dim,
-                                                            char_embedding_config["output_dim"],
-                                                            padding_idx=char_embedding_config["padding_idx"],
-                                                            bidirectional=char_embedding_config["bidirectional"],
-                                                            cell_type=char_embedding_config["cell_type"])
-
-        # set word level word embedding
 
         word_embedding = word_embedding_config["embedding_weights"]
         word_vocab_size, word_embedding_dim = word_embedding.size()
@@ -77,24 +65,21 @@ class WordEmbedding(nn.Module):
                                                       padding_idx=word_embedding_config["padding_idx"])
         self.word_embedding_word_level.weight = nn.Parameter(word_embedding,
                                                              requires_grad=word_embedding_config["update"])
-        self.embedding_size = word_embedding_dim + char_embedding_config["output_dim"]
+        # self.embedding_size = word_embedding_dim + char_embedding_config["output_dim"]
+        self.embedding_size = word_embedding_dim
 
-    def forward(self, words, *documents_lists):
+    def forward(self, *documents_lists):
         """
 
         :param words: all distinct words (char level) in seqs. Tuple of word tensors (batch first, with lengths) and word idx
         :param documents_lists: lists of documents like: (contexts_tensor, contexts_tensor_new), context_lengths)
         :return:   embedded batch (batch first)
         """
-        word_embedded_in_char = self.word_embedding_char_level(words.words_tensor, words.words_lengths)
 
         result = []
         for doc in documents_lists:
             word_level_embed = self.word_embedding_word_level(doc.tensor)
-            char_level_embed = (word_embedded_in_char.index_select(index=doc.tensor_new_dx.view(-1), dim=0)
-                                .view(doc.tensor_new_dx.size(0), doc.tensor_new_dx.size(1), -1))
-            new_embed = torch.cat((word_level_embed, char_level_embed), dim=2)
-            result.append(new_embed)
+            result.append(word_level_embed)
 
         return result
 
@@ -116,7 +101,6 @@ class SentenceEncoding(nn.Module):
     def forward(self, question_pack, context_pack):
         question_outputs, _ = self.question_encoder(question_pack)
         passage_outputs, _ = self.passage_encoder(context_pack)
-
         return question_outputs, passage_outputs
 
 
@@ -177,14 +161,13 @@ class RNet(nn.Module):
         passage_size = self_match_num_direction * pair_encoding_config["hidden_size"]
         self.pointer_output = PointerNetwork(question_size, passage_size, pointer_config["hidden_size"])
 
-    def forward(self, distinct_words: Words, question: Documents, passage: Documents):
+    def forward(self, question: Documents, passage: Documents):
         # embed words using char-level and word-level and concat them
-        # import ipdb; ipdb.set_trace()
-        embedded_question, embedded_passage = self.embedding(distinct_words, question, passage)
+        embedded_question, embedded_passage = self.embedding(question, passage)
         passage_pack, question_pack = self._sentence_encoding(embedded_passage, embedded_question,
                                                               passage, question)
 
-        question_encoded_padded_sorted, _ = pad_packed_sequence(question_pack)  # (Seq, Batch, encode_size), lengths
+        question_encoded_padded_sorted, _ = pad_packed_sequence(question_pack)  # (seq, batch, encode_size), lengths
         question_encoded_padded_original = question.restore_original_order(question_encoded_padded_sorted, batch_dim=1)
         # question and context has same ordering
         question_pad_in_passage_sorted_order = passage.to_sorted_order(question_encoded_padded_original,
@@ -194,8 +177,7 @@ class RNet(nn.Module):
 
         paired_passage_pack = self._pair_encode(passage_pack, question_pad_in_passage_sorted_order,
                                                 question_mask_in_passage_sorted_order)
-
-        self_matched_passage_pack, _ = self._self_match_encode(paired_passage_pack, passage)
+        self_matched_passage_pack = self._self_match_encode(paired_passage_pack, passage)
 
         begin, end = self.pointer_output(question_pad_in_passage_sorted_order,
                                          question_mask_in_passage_sorted_order,
@@ -213,8 +195,8 @@ class RNet(nn.Module):
 
     def _self_match_encode(self, paired_passage_pack, passage):
         passage_mask_sorted_order = passage.to_sorted_order(passage.mask_original, batch_dim=0).transpose(0, 1)
-        self_matched_passage = self.self_matching_encoder(pad_packed_sequence(paired_passage_pack)[0],
-                                                          passage_mask_sorted_order, paired_passage_pack)
+        self_matched_passage, _ = self.self_matching_encoder(pad_packed_sequence(paired_passage_pack)[0],
+                                                             passage_mask_sorted_order, paired_passage_pack)
         return self_matched_passage
 
     def _pair_encode(self, passage_encoded_pack, question_encoded_padded_in_passage_sorted_order,

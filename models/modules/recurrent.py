@@ -2,7 +2,7 @@ import torch
 from torch import nn
 from torch.nn.utils.rnn import pad_packed_sequence, pack_padded_sequence, PackedSequence
 
-from utils import get_rnn
+from utils.utils import get_rnn
 
 
 class RNN(nn.Module):
@@ -167,9 +167,7 @@ class AttentionEncoder(nn.Module):
         if flat_hidden:
             hidden = hidden[0]
         output = torch.cat(output, 0)
-
         output= PackedSequence(output, pack.batch_sizes)
-
         return output, hidden
 
     def _reversed_forward(self, inputs, hidden):
@@ -223,7 +221,7 @@ class AttentionEncoder(nn.Module):
 
         output_forward, hidden_forward = self._forward(inputs, hidden)
         if not self.bidirectional:
-            return hidden_forward, output_forward
+            return output_forward, hidden_forward
         output_reversed, hidden_reversed = self._reversed_forward(inputs, hidden)
 
         # concat forward and reversed forward
@@ -234,28 +232,3 @@ class AttentionEncoder(nn.Module):
         output = PackedSequence(output_data, output_forward.batch_sizes)
         assert output.data.size(0) == pack.data.size(0)
         return output, hidden
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
