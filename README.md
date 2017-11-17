@@ -24,5 +24,5 @@ python main.py --batch_size 32
 
 **Current Problems**
 
-This implementation got very poor performance on validation data. I am working on this.
-
+Char-Level embedding with RNN is too slow, so I removed it from my implementation.
+I plan to try using CNN to do char-level embedding.

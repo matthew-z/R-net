@@ -101,10 +101,10 @@ class Trainer(object):
             log_value('dev/f1', f1, step)
             log_value('dev/EM', exact_match, step)
 
-            torch.save(self.model, "trained_model")
+            torch.save(self.model, "trained.ckpt")
             if f1 > self.model.current_score:
                 self.model.current_score = f1
-                torch.save(self.model, "best_trained_model")
+                torch.save(self.model, "best_trained.ckpt")
 
     def eval(self):
         self.model.eval()
