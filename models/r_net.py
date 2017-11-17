@@ -101,7 +101,6 @@ class SentenceEncoding(nn.Module):
     def forward(self, question_pack, context_pack):
         question_outputs, _ = self.question_encoder(question_pack)
         passage_outputs, _ = self.passage_encoder(context_pack)
-
         return question_outputs, passage_outputs
 
 
@@ -175,14 +174,14 @@ class RNet(nn.Module):
                                                                        batch_dim=1)
         question_mask_in_passage_sorted_order = passage.to_sorted_order(question.mask_original, batch_dim=0).transpose(
             0, 1)
-        #
-        # paired_passage_pack = self._pair_encode(passage_pack, question_pad_in_passage_sorted_order,
-        #                                         question_mask_in_passage_sorted_order)
-        # self_matched_passage_pack, _ = self._self_match_encode(paired_passage_pack, passage)
+
+        paired_passage_pack = self._pair_encode(passage_pack, question_pad_in_passage_sorted_order,
+                                                question_mask_in_passage_sorted_order)
+        self_matched_passage_pack = self._self_match_encode(paired_passage_pack, passage)
 
         begin, end = self.pointer_output(question_pad_in_passage_sorted_order,
                                          question_mask_in_passage_sorted_order,
-                                         pad_packed_sequence(passage_pack)[0],
+                                         pad_packed_sequence(self_matched_passage_pack)[0],
                                          passage.to_sorted_order(passage.mask_original, batch_dim=0).transpose(0, 1))
 
         return (passage.restore_original_order(begin.transpose(0, 1), 0),
@@ -196,8 +195,8 @@ class RNet(nn.Module):
 
     def _self_match_encode(self, paired_passage_pack, passage):
         passage_mask_sorted_order = passage.to_sorted_order(passage.mask_original, batch_dim=0).transpose(0, 1)
-        self_matched_passage = self.self_matching_encoder(pad_packed_sequence(paired_passage_pack)[0],
-                                                          passage_mask_sorted_order, paired_passage_pack)
+        self_matched_passage, _ = self.self_matching_encoder(pad_packed_sequence(paired_passage_pack)[0],
+                                                             passage_mask_sorted_order, paired_passage_pack)
         return self_matched_passage
 
     def _pair_encode(self, passage_encoded_pack, question_encoded_padded_in_passage_sorted_order,

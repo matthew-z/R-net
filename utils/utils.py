@@ -26,8 +26,8 @@ URL = {
 def get_args():
     parser = ArgumentParser(description='PyTorch R-net')
     parser.add_argument('--epoch_num', type=int, default=50)
-    parser.add_argument('--batch_size', type=int, default=64)
-    parser.add_argument('--batch_size_dev', type=int, default=64)
+    parser.add_argument('--batch_size', type=int, default=128)
+    parser.add_argument('--batch_size_dev', type=int, default=128)
     parser.add_argument('--debug', type=bool, default=False)
     parser.add_argument('--resume_snapshot_path', type=str, default="trained_model")
     parser.add_argument('--resume', type=bool, default=False)
@@ -204,11 +204,11 @@ def maybe_download(url, download_path, filename):
             raise e
 
 
-def read_train_json(path, debug_mode, debug_len, delete_long_context=True, longest_context=300):
+def read_train_json(path, debug_mode, debug_len, delete_long_context=True, delete_long_question=True,
+                    longest_context=300, longest_question=30):
     with open(path) as fin:
         data = json.load(fin)
     examples = []
-
     for topic in data["data"]:
         title = topic["title"]
         for p in topic['paragraphs']:
@@ -219,6 +219,10 @@ def read_train_json(path, debug_mode, debug_len, delete_long_context=True, longe
             for qa in qas:
                 question = qa["question"]
                 answers = qa["answers"]
+
+                if delete_long_question and len(nltk.word_tokenize(question)) > longest_question:
+                    continue
+
                 question_id = qa["id"]
                 for ans in answers:
                     answer_start = int(ans["answer_start"])
@@ -234,7 +238,7 @@ def read_train_json(path, debug_mode, debug_len, delete_long_context=True, longe
 
                     if debug_mode and len(examples) >= debug_len:
                         return examples
-
+    print("train examples :%s" % len(examples))
     return examples
 
 

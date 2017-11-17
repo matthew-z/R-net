@@ -111,12 +111,10 @@ class Trainer(object):
         pred_result = {}
         for _, batch in enumerate(self.dataloader_dev):
 
-            question_ids, words, questions, passages, passage_tokenized = batch
-            words.to_variable(volatile=True)
+            question_ids, questions, passages, passage_tokenized = batch
             questions.to_variable(volatile=True)
             passages.to_variable(volatile=True)
-            begin_, end_ = self.model(
-                words, questions, passages)  # batch x seq
+            begin_, end_ = self.model(questions, passages)  # batch x seq
 
             _, pred_begin = torch.max(begin_, 1)
             _, pred_end = torch.max(end_, 1)

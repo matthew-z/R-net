@@ -71,7 +71,7 @@ class Documents(object):
 
 
 class SQuAD(Dataset):
-    def __init__(self, path, stoi, ctoi, tokenizer="nltk", split="train",
+    def __init__(self, path, itos, stoi, itoc, ctoi, tokenizer="nltk", split="train",
                  debug_mode=False, debug_len=50):
 
         self.insert_start = stoi.get("<SOS>", None)
@@ -80,8 +80,8 @@ class SQuAD(Dataset):
         self.PAD = stoi.get("<PAD>", None)
         self.stoi = stoi
         self.ctoi = ctoi
-        self.itos = {v:k for k, v in stoi.items()}
-        self.itoc = {v:k for k, v in ctoi.items()}
+        self.itos = itos
+        self.itoc = itoc
         self.split = split
         self._set_tokenizer(tokenizer)
 
@@ -135,7 +135,7 @@ class SQuAD(Dataset):
         else:
             return (item, item.question_id, item.numeralized_question, item.numeralized_question_char,
                     item.numeralized_passage, item.numeralized_passage_char,
-                    item.tokenized_passage, item.tokenized_passage)
+                    item.tokenized_passage)
 
     def __len__(self):
         return len(self.examples)

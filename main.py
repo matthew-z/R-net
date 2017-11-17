@@ -40,6 +40,7 @@ def read_vocab(vocab_config):
 
 def main():
     args = get_args()
+    prepare_data()
     word_vocab_config = {
         "<UNK>": 0,
         "<PAD>": 1,
@@ -102,7 +103,6 @@ def main():
                       "residual": args.residual,
                       "rnn_cell": torch.nn.GRUCell}
 
-    prepare_data()
     is_debug = args.debug
     print("DEBUG Mode is ", "On" if is_debug else "Off", flush=True)
     train_cache = "./data/cache/SQuAD%s.pkl" % ("_debug" if is_debug else "")
@@ -129,11 +129,11 @@ def read_dataset(json_file, itos, stoi, itoc, ctoi, cache_file, is_debug=False, 
     if os.path.isfile(cache_file):
         print("Read built %s dataset from %s" % (split, cache_file), flush=True)
         dataset = pickle.load(open(cache_file, "rb"))
-        assert (dataset.itos == itos)
+
     else:
         print("building %s dataset" % split, flush=True)
         from utils.dataset import SQuAD
-        dataset = SQuAD(json_file, stoi, ctoi, debug_mode=is_debug, split=split)
+        dataset = SQuAD(json_file, itos, stoi, itoc, ctoi, debug_mode=is_debug, split=split)
         pickle.dump(dataset, open(cache_file, "wb"))
     return dataset
 
