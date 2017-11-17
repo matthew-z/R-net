@@ -18,11 +18,11 @@ Python 3.5/3.6  and PyTorch 0.2
 **Usage**
 
 ```
-python main.py --batch_size 32
+python main.py --batch_size 128
 
 ```
 
 **Current Problems**
 
-Char-Level embedding with RNN is too slow, so I removed it from my implementation.
+Char-Level embedding with RNN is too slow and requires much GPU memory, so I removed it from my implementation.
 I plan to try using CNN to do char-level embedding.
