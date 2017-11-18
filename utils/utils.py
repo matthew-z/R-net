@@ -25,12 +25,16 @@ URL = {
 
 def get_args():
     parser = ArgumentParser(description='PyTorch R-net')
+
+    parser.add_argument('--name', type=str, default="r-net")
+    parser.add_argument('--gpu_device', type=int, default=None)
+    parser.add_argument('--start_epoch', type=int, default=0)
     parser.add_argument('--epoch_num', type=int, default=50)
-    parser.add_argument('--batch_size', type=int, default=128)
-    parser.add_argument('--batch_size_dev', type=int, default=128)
+    parser.add_argument('--batch_size', type=int, default=48)
+    parser.add_argument('--batch_size_dev', type=int, default=64)
     parser.add_argument('--debug', type=bool, default=False)
-    parser.add_argument('--resume_snapshot_path', type=str, default="trained_model")
-    parser.add_argument('--resume', type=bool, default=False)
+    parser.add_argument('--checkpoint_path', type=str, default="checkpoint")
+    parser.add_argument('--resume', type=str, default=None)
     parser.add_argument('--train_json', type=str, default="./data/squad/train-v1.1.json")
     parser.add_argument('--dev_json', type=str, default="./data/squad/dev-v1.1.json")
     parser.add_argument('--update_word_embedding', type=bool, default=False)
@@ -372,6 +376,7 @@ def prepare_data():
     make_dirs("data/embedding/word")
     make_dirs("data/squad")
     make_dirs("data/trained_model")
+    make_dirs("checkpoint")
 
     nltk.download("punkt")
 

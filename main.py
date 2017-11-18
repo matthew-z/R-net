@@ -7,6 +7,7 @@ from trainer import Trainer
 from utils.utils import prepare_data, get_args, read_embedding
 
 
+# TODO: read vocab into a cpu embedding layer
 def read_vocab(vocab_config):
     """
     :param counter: counter of words in dataset
@@ -117,11 +118,10 @@ def main():
     dev_dataloader = dev.get_dataloader(args.batch_size_dev)
     train_dataloader = train.get_dataloader(args.batch_size, shuffle=True)
 
-    trainer = Trainer(train_dataloader, dev_dataloader,
+    trainer = Trainer(args, train_dataloader, dev_dataloader,
                       char_embedding_config, word_embedding_config,
                       sentence_encoding_config, pair_encoding_config,
-                      self_matching_config, pointer_config, resume=args.resume,
-                      resume_snapshot_path=args.resume_snapshot_path, dev_dataset_path=args.dev_json)
+                      self_matching_config, pointer_config)
     trainer.train(args.epoch_num)
 
 

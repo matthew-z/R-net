@@ -1,6 +1,7 @@
 import datetime
 import json
 import os
+import shutil
 import sys
 import time
 
@@ -13,16 +14,21 @@ from models.r_net import RNet
 from utils.squad_eval import evaluate
 
 
+def save_checkpoint(state, is_best, path, filename='checkpoint.pth.tar', best_filename='model_best.pth.tar'):
+    checkpoint_regular = os.path.join(path, filename)
+    checkpint_best = os.path.join(path, best_filename)
+    torch.save(state, checkpoint_regular)
+    if is_best:
+        shutil.copyfile(checkpoint_regular, checkpint_best)
+
+
 class Trainer(object):
-    def __init__(self, dataloader_train, dataloader_dev, char_embedding_config, word_embedding_config,
-                 sentence_encoding_config,
-                 pair_encoding_config, self_matching_config, pointer_config,
-                 resume=False, resume_snapshot_path="trained_model",
-                 dev_dataset_path="./data/squad/dev-v1.1.json"):
+    def __init__(self, args, dataloader_train, dataloader_dev, char_embedding_config, word_embedding_config,
+                 sentence_encoding_config, pair_encoding_config, self_matching_config, pointer_config):
 
         # for validate
         expected_version = "1.1"
-        with open(dev_dataset_path) as dataset_file:
+        with open(args.dev_json) as dataset_file:
             dataset_json = json.load(dataset_file)
             if dataset_json['version'] != expected_version:
                 print('Evaluation expects v-' + expected_version +
@@ -32,36 +38,51 @@ class Trainer(object):
 
         self.dataloader_train = dataloader_train
         self.dataloader_dev = dataloader_dev
-        if not resume:
-            self.model = RNet(char_embedding_config, word_embedding_config, sentence_encoding_config,
-                              pair_encoding_config, self_matching_config, pointer_config)
-        else:
-            if os.path.exists(resume_snapshot_path):
-                self.model = torch.load(open(resume_snapshot_path, "rb"))
-            else:
-                raise FileNotFoundError(
-                    "resume snapshot not found at: %s" % resume_snapshot_path)
 
+        self.model = RNet(char_embedding_config, word_embedding_config, sentence_encoding_config,
+                          pair_encoding_config, self_matching_config, pointer_config)
+        self.parameters_trainable = list(
+            filter(lambda p: p.requires_grad, self.model.parameters()))
+        self.optimizer = optim.Adadelta(self.parameters_trainable, rho=0.95)
+        self.best_f1 = 0
+        self.step = 0
+        self.start_epoch = args.start_epoch
+        self.name = args.name
+        self.start_time = datetime.datetime.now().strftime('%b-%d_%H-%M')
+
+        if args.resume:
+            if os.path.isfile(args.resume):
+                print("=> loading checkpoint '{}'".format(args.resume))
+                checkpoint = torch.load(args.resume)
+                self.start_epoch = checkpoint['epoch']
+                self.best_f1 = checkpoint['best_f1']
+                self.name = checkpoint['name']
+                self.step = checkpoint['step']
+                self.model.load_state_dict(checkpoint['state_dict'])
+                self.optimizer.load_state_dict(checkpoint['optimizer'])
+                self.start_time = checkpoint['start_time']
+
+                print("=> loaded checkpoint '{}' (epoch {})"
+                      .format(args.resume, checkpoint['epoch']))
+            else:
+                raise ValueError("=> no checkpoint found at '{}'".format(args.resume))
+
+        # use which device
         if torch.cuda.is_available():
-            self.model = self.model.cuda()
+            self.model = self.model.cuda(device_id=args.gpu_device)
         else:
             self.model = self.model.cpu()
 
         self.loss_fn = torch.nn.CrossEntropyLoss()
 
-        self.parameters_trainable = list(
-            filter(lambda p: p.requires_grad, self.model.parameters()))
-        self.optimizer = optim.Adadelta(self.parameters_trainable, rho=0.95)
-
-        time_stamp = datetime.datetime.now().strftime('%b-%d_%H-%M')
-        configure("log/%s%s"%("minimal_", time_stamp), flush_secs=5)
+        configure("log/%s%s" % (args.name + "_", self.start_time), flush_secs=5)
+        self.checkpoint_path = os.path.join(args.checkpoint_path, args.name)
 
     def train(self, epoch_num):
-        step = 0
         for epoch in range(epoch_num):
             global_loss = 0.0
             global_acc = 0.0
-            last_step = step - 1
+            last_step = self.step - 1
             last_time = time.time()
 
             for batch_idx, batch_train in enumerate(self.dataloader_train):
@@ -70,9 +91,9 @@ class Trainer(object):
                 global_acc += acc
                 self._update_param(loss)
 
-                if step % 10 == 0:
+                if self.step % 10 == 0:
                     used_time = time.time() - last_time
-                    step_num = step - last_step
+                    step_num = self.step - last_step
                     print("step %d / %d of epoch %d)" % (batch_idx, len(self.dataloader_train), epoch), flush=True)
                     print("loss: ", global_loss / step_num, flush=True)
                     print("acc: ", global_acc / step_num, flush=True)
@@ -80,16 +101,15 @@ class Trainer(object):
                     print("speed: %f examples/sec \n\n" %
                           (speed), flush=True)
 
-                    log_value('train/EM', global_acc / step_num, step)
-                    log_value('train/loss', global_loss / step_num, step)
-                    log_value('train/speed', speed, step)
-
+                    log_value('train/EM', global_acc / step_num, self.step)
+                    log_value('train/loss', global_loss / step_num, self.step)
+                    log_value('train/speed', speed, self.step)
 
                     global_loss = 0.0
                     global_acc = 0.0
-                    last_step = step
+                    last_step = self.step
                     last_time = time.time()
-                step += 1
+                self.step += 1
 
             if epoch % 2 != 0 or epoch < 5:
                 continue
@@ -98,13 +118,26 @@ class Trainer(object):
             print("exact_match: %f)" % exact_match, flush=True)
             print("f1: %f)" % f1, flush=True)
 
-            log_value('dev/f1', f1, step)
-            log_value('dev/EM', exact_match, step)
+            log_value('dev/f1', f1, self.step)
+            log_value('dev/EM', exact_match, self.step)
 
-            torch.save(self.model, "trained.ckpt")
-            if f1 > self.model.current_score:
-                self.model.current_score = f1
-                torch.save(self.model, "best_trained.ckpt")
+            if f1 > self.best_f1:
+                is_best = True
+                self.best_f1 = f1
+            else:
+                is_best = False
+
+            save_checkpoint({
+                'epoch': epoch + 1,
+                'state_dict': self.model.state_dict(),
+                'step': self.step + 1,
+                'best_f1': self.best_f1,
+                'name': self.name,
+                'optimizer': self.optimizer.state_dict(),
+                'start_time': self.start_time
+            }, is_best, self.checkpoint_path)
+
+
 
     def eval(self):
         self.model.eval()
@@ -150,9 +183,9 @@ class Trainer(object):
 
         exact_correct_num = torch.sum(
             (pred_begin == begin) * (pred_end == end))
-        acc = exact_correct_num.data[0] / batch_num
+        em = exact_correct_num.data[0] / batch_num
 
-        return loss, acc
+        return loss, em
 
     def _update_param(self, loss):
         self.model.zero_grad()
