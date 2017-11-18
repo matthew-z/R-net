@@ -25,7 +25,7 @@ def read_vocab(vocab_config):
     itos = vocab_config['specials'][:]
     stoi = {}
 
-    itos.extend(list(w for w, i in sorted(filter(lambda t : t[1]<30000,  wv_dict.items()), key=lambda x:x[1])))
+    itos.extend(list(w for w, i in sorted(filter(lambda t: t[1] < 400000, wv_dict.items()), key=lambda x: x[1])))
 
     for idx, word in enumerate(itos):
         stoi[word] = idx
@@ -104,19 +104,18 @@ def main():
                       "residual": args.residual,
                       "rnn_cell": torch.nn.GRUCell}
 
-    is_debug = args.debug
-    print("DEBUG Mode is ", "On" if is_debug else "Off", flush=True)
-    train_cache = "./data/cache/SQuAD%s.pkl" % ("_debug" if is_debug else "")
-    dev_cache = "./data/cache/SQuAD_dev%s.pkl" % ("_debug" if is_debug else "")
+    print("DEBUG Mode is ", "On" if args.debug else "Off", flush=True)
+    train_cache = "./data/cache/SQuAD%s.pkl" % ("_debug" if args.debug else "")
+    dev_cache = "./data/cache/SQuAD_dev%s.pkl" % ("_debug" if args.debug else "")
 
     train_json = args.train_json
     dev_json = args.dev_json
 
-    train = read_dataset(train_json, itos, stoi, itoc, ctoi, train_cache, is_debug)
-    dev = read_dataset(dev_json, itos, stoi, itoc, ctoi, dev_cache, is_debug, split="dev")
+    train = read_dataset(train_json, itos, stoi, itoc, ctoi, train_cache, args.debug)
+    dev = read_dataset(dev_json, itos, stoi, itoc, ctoi, dev_cache, args.debug, split="dev")
 
     dev_dataloader = dev.get_dataloader(args.batch_size_dev)
-    train_dataloader = train.get_dataloader(args.batch_size, shuffle=True)
+    train_dataloader = train.get_dataloader(args.batch_size, shuffle=True, pin_memory=args.pin_memory)
 
     trainer = Trainer(args, train_dataloader, dev_dataloader,
                       char_embedding_config, word_embedding_config,

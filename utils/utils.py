@@ -46,6 +46,7 @@ def get_args():
     parser.add_argument('--bidirectional', type=bool, default=True)
     parser.add_argument('--num_layers', type=int, default=3)
     parser.add_argument('--app_path', type=str, default=dirname(dirname(abspath(__file__))))
+    parser.add_argument('--pin_memory', type=bool, default=False)
 
     args = parser.parse_args()
     return args

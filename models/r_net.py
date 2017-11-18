@@ -68,17 +68,17 @@ class WordEmbedding(nn.Module):
         # self.embedding_size = word_embedding_dim + char_embedding_config["output_dim"]
         self.embedding_size = word_embedding_dim
 
-    def forward(self, *documents_lists):
+    def forward(self, *tensors):
         """
 
         :param words: all distinct words (char level) in seqs. Tuple of word tensors (batch first, with lengths) and word idx
-        :param documents_lists: lists of documents like: (contexts_tensor, contexts_tensor_new), context_lengths)
+        :param tensors: lists of documents like: (contexts_tensor, contexts_tensor_new), context_lengths)
         :return:   embedded batch (batch first)
         """
 
         result = []
-        for doc in documents_lists:
-            word_level_embed = self.word_embedding_word_level(doc.tensor)
+        for tensor in tensors:
+            word_level_embed = self.word_embedding_word_level(tensor)
             result.append(word_level_embed)
 
         return result
@@ -138,13 +138,40 @@ class PointerNetwork(nn.Module):
         return ans_begin, ans_end
 
 
-class RNet(nn.Module):
+class Model(nn.Module):
     def __init__(self, char_embedding_config, word_embedding_config, sentence_encoding_config,
+                 pair_encoding_config, self_matching_config, pointer_config, device_id=None):
+        super().__init__()
+        self.embedding = WordEmbedding(char_embedding_config, word_embedding_config)
+
+        self.r_net = RNet(self.embedding.embedding_size, char_embedding_config, word_embedding_config,
+                          sentence_encoding_config,
+                          pair_encoding_config, self_matching_config, pointer_config)
+
+        self.device_id = device_id
+
+    def forward(self, question: Documents, passage: Documents):
+        embedded_question, embedded_passage = self.embedding(question.tensor, passage.tensor)
+
+        if torch.cuda.is_available():
+            embedded_question = embedded_question.cuda(self.device_id)
+            embedded_passage = embedded_passage.cuda(self.device_id)
+            question = question.cuda(self.device_id)
+            passage = passage.cuda(self.device_id)
+
+        return self.r_net(question, passage, embedded_question, embedded_passage)
+
+    def cuda(self, *args, **kwargs):
+        self.r_net.cuda(*args, **kwargs)
+        return self
+
+
+class RNet(nn.Module):
+    def __init__(self, embedding_size, char_embedding_config, word_embedding_config, sentence_encoding_config,
                  pair_encoding_config, self_matching_config, pointer_config):
         super().__init__()
         self.current_score = 0
-        self.embedding = WordEmbedding(char_embedding_config, word_embedding_config)
-        self.sentence_encoding = SentenceEncoding(self.embedding.embedding_size, sentence_encoding_config)
+        self.sentence_encoding = SentenceEncoding(embedding_size, sentence_encoding_config)
 
         sentence_num_direction = (2 if sentence_encoding_config["bidirectional"] else 1)
         sentence_encoding_size = (sentence_encoding_config["hidden_size"]
@@ -161,9 +188,8 @@ class RNet(nn.Module):
         passage_size = self_match_num_direction * pair_encoding_config["hidden_size"]
         self.pointer_output = PointerNetwork(question_size, passage_size, pointer_config["hidden_size"])
 
-    def forward(self, question: Documents, passage: Documents):
+    def forward(self, question: Documents, passage: Documents, embedded_question, embedded_passage):
         # embed words using char-level and word-level and concat them
-        embedded_question, embedded_passage = self.embedding(question, passage)
         passage_pack, question_pack = self._sentence_encoding(embedded_passage, embedded_question,
                                                               passage, question)
 

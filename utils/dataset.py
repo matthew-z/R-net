@@ -41,7 +41,6 @@ class Documents(object):
         sorted_lengths_tensor, self.sorted_idx = torch.sort(torch.LongTensor(lengths), dim=0, descending=True)
 
         self.tensor = tensor.index_select(dim=0, index=self.sorted_idx)
-        self.tensor_sorted = tensor.index_select(dim=0, index=self.sorted_idx)
 
         self.lengths = list(sorted_lengths_tensor)
         self.original_idx = torch.LongTensor(sort_idx(self.sorted_idx))
@@ -50,18 +49,20 @@ class Documents(object):
         for i, length in enumerate(self.original_lengths):
             self.mask_original[i][:length].fill_(1)
 
-    def to_variable(self, volatile=False):
+    def variable(self, volatile=False):
         self.tensor = Variable(self.tensor, volatile=volatile)
-        self.tensor_sorted = Variable(self.tensor_sorted, volatile=volatile)
         self.sorted_idx = Variable(self.sorted_idx, volatile=volatile)
         self.original_idx = Variable(self.original_idx, volatile=volatile)
         self.mask_original = Variable(self.mask_original, volatile=volatile)
+        return self
+
+    def cuda(self, *args, **kwargs):
         if torch.cuda.is_available():
-            self.tensor = self.tensor.cuda()
-            self.tensor_sorted = self.tensor_sorted.cuda()
-            self.sorted_idx = self.sorted_idx.cuda()
-            self.original_idx = self.original_idx.cuda()
-            self.mask_original = self.mask_original.cuda()
+            self.sorted_idx = self.sorted_idx.cuda(*args, **kwargs)
+            self.original_idx = self.original_idx.cuda(*args, **kwargs)
+            self.mask_original = self.mask_original.cuda(*args, **kwargs)
+
+        return self
 
     def restore_original_order(self, sorted_tensor, batch_dim):
         return sorted_tensor.index_select(dim=batch_dim, index=self.original_idx)
@@ -184,10 +185,11 @@ class SQuAD(Dataset):
 
         return partial(collate, this=self)
 
-    def get_dataloader(self, batch_size, num_workers=4, shuffle=True, batch_first=True):
+    def get_dataloader(self, batch_size, num_workers=4, shuffle=True, batch_first=True, pin_memory=False):
         """
 
         :param batch_first:  Currently, it must be True as nn.Embedding requires batch_first input
         """
         return DataLoader(self, batch_size=batch_size, shuffle=shuffle,
-                          collate_fn=self._create_collate_fn(batch_first), num_workers=num_workers)
+                          collate_fn=self._create_collate_fn(batch_first),
+                          num_workers=num_workers, pin_memory=pin_memory)
