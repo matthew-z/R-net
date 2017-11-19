@@ -25,7 +25,7 @@ def read_vocab(vocab_config):
     itos = vocab_config['specials'][:]
     stoi = {}
 
-    itos.extend(list(w for w, i in sorted(filter(lambda t: t[1] < 400000, wv_dict.items()), key=lambda x: x[1])))
+    itos.extend(list(w for w, i in sorted(wv_dict.items(), key=lambda x: x[1])))
 
     for idx, word in enumerate(itos):
         stoi[word] = idx

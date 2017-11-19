@@ -16,7 +16,7 @@ Python 3.5/3.6  and PyTorch 0.2
 **Usage**
 
 ```
-python main.py --batch_size 128
+python main.py --batch_size 64gaa
 
 ```
 
