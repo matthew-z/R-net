@@ -1,11 +1,19 @@
 import torch
 from torch import nn
 from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
-
+from modules.attention import AttentionPooling
+from modules.recurrent import RNN, AttentionEncoder, AttentionEncoderCell, StackedCell
 from utils.dataset import Documents
-from .modules.attention import AttentionPooling
-from .modules.recurrent import RNN, AttentionEncoder, AttentionEncoderCell, StackedCell
 
+
+def pack_residual(x_pack, y_pack):
+    x_tensor, x_lengths = pad_packed_sequence(x_pack)
+    y_tensor, y_lengths = pad_packed_sequence(y_pack)
+
+    if x_lengths != y_lengths:
+        raise ValueError("different lengths")
+
+    return pack_padded_sequence(x_tensor + y_tensor, x_lengths)
 
 class PairEncoder(nn.Module):
     def __init__(self, question_embed_size, passage_embed_size, config,
@@ -98,6 +106,7 @@ class SentenceEncoding(nn.Module):
                                    bidirectional=config["bidirectional"],
                                    dropout=config["dropout"])
 
+
     def forward(self, question_pack, context_pack):
         question_outputs, _ = self.question_encoder(question_pack)
         passage_outputs, _ = self.passage_encoder(context_pack)
@@ -139,16 +148,16 @@ class PointerNetwork(nn.Module):
 
 
 class Model(nn.Module):
-    def __init__(self, char_embedding_config, word_embedding_config, sentence_encoding_config,
-                 pair_encoding_config, self_matching_config, pointer_config, device_id=None):
+    def __init__(self, args, char_embedding_config, word_embedding_config, sentence_encoding_config,
+                 pair_encoding_config, self_matching_config, pointer_config):
         super().__init__()
         self.embedding = WordEmbedding(char_embedding_config, word_embedding_config)
 
-        self.r_net = RNet(self.embedding.embedding_size, char_embedding_config, word_embedding_config,
+        self.r_net = RNet(args, self.embedding.embedding_size, char_embedding_config, word_embedding_config,
                           sentence_encoding_config,
                           pair_encoding_config, self_matching_config, pointer_config)
 
-        self.device_id = device_id
+        self.device_id = args.device_id
 
     def forward(self, question: Documents, passage: Documents):
         embedded_question, embedded_passage = self.embedding(question.tensor, passage.tensor)
@@ -167,7 +176,7 @@ class Model(nn.Module):
 
 
 class RNet(nn.Module):
-    def __init__(self, embedding_size, char_embedding_config, word_embedding_config, sentence_encoding_config,
+    def __init__(self, args, embedding_size, char_embedding_config, word_embedding_config, sentence_encoding_config,
                  pair_encoding_config, self_matching_config, pointer_config):
         super().__init__()
         self.current_score = 0
@@ -187,12 +196,16 @@ class RNet(nn.Module):
         question_size = sentence_num_direction * sentence_encoding_config["hidden_size"]
         passage_size = self_match_num_direction * pair_encoding_config["hidden_size"]
         self.pointer_output = PointerNetwork(question_size, passage_size, pointer_config["hidden_size"])
+        self.residual = args.residual
+        for name, weight in self.named_parameters():
+            if weight.ndimension() >= 2:
+                nn.init.orthogonal(weight)
+
 
     def forward(self, question: Documents, passage: Documents, embedded_question, embedded_passage):
         # embed words using char-level and word-level and concat them
         passage_pack, question_pack = self._sentence_encoding(embedded_passage, embedded_question,
                                                               passage, question)
-
         question_encoded_padded_sorted, _ = pad_packed_sequence(question_pack)  # (seq, batch, encode_size), lengths
         question_encoded_padded_original = question.restore_original_order(question_encoded_padded_sorted, batch_dim=1)
         # question and context has same ordering
@@ -203,7 +216,14 @@ class RNet(nn.Module):
 
         paired_passage_pack = self._pair_encode(passage_pack, question_pad_in_passage_sorted_order,
                                                 question_mask_in_passage_sorted_order)
+
+        if self.residual:
+            paired_passage_pack = pack_residual(paired_passage_pack, passage_pack)
+
         self_matched_passage_pack = self._self_match_encode(paired_passage_pack, passage)
+
+        if self.residual:
+            self_matched_passage_pack = pack_residual(paired_passage_pack, self_matched_passage_pack)
 
         begin, end = self.pointer_output(question_pad_in_passage_sorted_order,
                                          question_mask_in_passage_sorted_order,

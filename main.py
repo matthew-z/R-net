@@ -128,6 +128,7 @@ def read_dataset(json_file, itos, stoi, itoc, ctoi, cache_file, is_debug=False, 
     if os.path.isfile(cache_file):
         print("Read built %s dataset from %s" % (split, cache_file), flush=True)
         dataset = pickle.load(open(cache_file, "rb"))
+        print("Finished reading %s dataset from %s" % (split, cache_file), flush=True)
 
     else:
         print("building %s dataset" % split, flush=True)

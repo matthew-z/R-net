@@ -27,7 +27,7 @@ def get_args():
     parser = ArgumentParser(description='PyTorch R-net')
 
     parser.add_argument('--name', type=str, default="r-net")
-    parser.add_argument('--gpu_device', type=int, default=None)
+    parser.add_argument('--device_id', type=int, default=None)
     parser.add_argument('--start_epoch', type=int, default=0)
     parser.add_argument('--epoch_num', type=int, default=50)
     parser.add_argument('--batch_size', type=int, default=48)

@@ -11,7 +11,7 @@ class RNN(nn.Module):
     def __init__(self, input_size, hidden_size,
                  output_projection_size=None, num_layers=1,
                  bidirectional=True, cell_type="lstm", dropout=0,
-                 pack=False, batch_first=False):
+                 pack=False, batch_first=False, init_method="default"):
         super().__init__()
         self.input_layer = nn.Linear(input_size, hidden_size)
 
@@ -23,6 +23,7 @@ class RNN(nn.Module):
         self.network = network(input_size=input_size, hidden_size=hidden_size,
                                num_layers=num_layers, bidirectional=bidirectional,
                                dropout=dropout, batch_first=batch_first)
+
 
     def forward(self, input_variable):
         outputs, hidden = self.network(input_variable)
@@ -70,7 +71,7 @@ class StackedCell(nn.Module):
                 else next_hidden_i
             if i + 1 != self.num_layers:
                 output = self.dropout(output)
-            if self.residual:
+            if i > 0 and self.residual:
                 inputs = output + inputs
             else:
                 inputs = output

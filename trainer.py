@@ -40,7 +40,7 @@ class Trainer(object):
         self.dataloader_train = dataloader_train
         self.dataloader_dev = dataloader_dev
 
-        self.model = RNet.Model(char_embedding_config, word_embedding_config, sentence_encoding_config,
+        self.model = RNet.Model(args, char_embedding_config, word_embedding_config, sentence_encoding_config,
                                 pair_encoding_config, self_matching_config, pointer_config)
         self.parameters_trainable = list(
             filter(lambda p: p.requires_grad, self.model.parameters()))
@@ -72,7 +72,7 @@ class Trainer(object):
 
         # use which device
         if torch.cuda.is_available():
-            self.model = self.model.cuda(args.gpu_device)
+            self.model = self.model.cuda(args.device_id)
         else:
             self.model = self.model.cpu()
 
@@ -95,7 +95,7 @@ class Trainer(object):
                 global_acc += acc
                 self._update_param(loss)
 
-                if self.step % 1 == 0:
+                if self.step % 10 == 0:
                     used_time = time.time() - last_time
                     step_num = self.step - last_step
                     print("step %d / %d of epoch %d)" % (batch_idx, len(self.dataloader_train), epoch), flush=True)
@@ -114,9 +114,6 @@ class Trainer(object):
                     last_step = self.step
                     last_time = time.time()
                 self.step += 1
-
-            if epoch % 2 != 0 or epoch < 5:
-                continue
 
             exact_match, f1 = self.eval()
             print("exact_match: %f)" % exact_match, flush=True)
