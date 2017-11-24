@@ -126,7 +126,7 @@ class RNet(nn.Module):
                                              dropout=pointer_config["dropout"],
                                              cell_type=pointer_config["rnn_cell"])
         self.residual = args.residual
-        for name, weight in self.parameters():
+        for weight in self.parameters():
             if weight.ndimension() >= 2:
                 nn.init.orthogonal(weight)
 
