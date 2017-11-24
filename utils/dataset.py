@@ -10,23 +10,49 @@ from torch.utils.data import Dataset
 from utils.utils import read_train_json, read_dev_json, tokenized_by_answer, sort_idx
 
 
-def padding(seqs, pad, batch_first=False):
+def padding(seqs, pad, output_batch_first=True):
     """
-
-    :param seqs: tuple of seq_length x dim
-    :return: seq_length x Batch x dim
+    :param seqs: sequence of seq_length x dim
     """
     lengths = [len(s) for s in seqs]
+
 
     seqs = [torch.Tensor(s) for s in seqs]
     batch_length = max(lengths)
     seq_tensor = torch.LongTensor(batch_length, len(seqs)).fill_(pad)
+    mask = torch.LongTensor(seq_tensor.size()).fill_(0)
+
     for i, s in enumerate(seqs):
         end_seq = lengths[i]
         seq_tensor[:end_seq, i].copy_(s[:end_seq])
-    if batch_first:
+        mask[:end_seq, i].fill_(1)
+    if output_batch_first:
         seq_tensor = seq_tensor.t()
-    return (seq_tensor, lengths)
+        mask = mask.t()
+    return (seq_tensor, mask,  lengths)
+
+
+def padding_2d(seqs, pad):
+    """
+    :param seqs:  sequence of sentences, each word is a list of chars
+    """
+    sentence_length = 0
+    word_length = 0
+    lengths = []
+    for seq in seqs:
+        sentence_length = max(sentence_length, len(seq))
+        for word in seq:
+            word_length = max(word_length, len(word))
+
+    tensor = torch.LongTensor(len(seqs), sentence_length, word_length).fill_(pad)
+    mask = torch.LongTensor(tensor.size()).fill_(0)
+    for i, s in enumerate(seqs):
+        lengths.append([])
+        for j, w in enumerate(s):
+            tensor[i, j, :len(w)].copy_(torch.LongTensor(w))
+            mask[i, j, :len(w)].fill_(1)
+            lengths[-1].append(len(w))
+    return tensor, mask, lengths
 
 
 class Documents(object):
@@ -36,18 +62,15 @@ class Documents(object):
         should be batch_first for embedding
     """
 
-    def __init__(self, tensor, lengths):
+    def __init__(self, questions, pad=0, batch_first=True):
+        tensor, self.mask_original, lengths = padding(questions, pad, output_batch_first=batch_first)
+
         self.original_lengths = lengths
         sorted_lengths_tensor, self.sorted_idx = torch.sort(torch.LongTensor(lengths), dim=0, descending=True)
-
         self.tensor = tensor.index_select(dim=0, index=self.sorted_idx)
-
         self.lengths = list(sorted_lengths_tensor)
         self.original_idx = torch.LongTensor(sort_idx(self.sorted_idx))
 
-        self.mask_original = torch.zeros(*self.tensor.size())
-        for i, length in enumerate(self.original_lengths):
-            self.mask_original[i][:length].fill_(1)
 
     def variable(self, volatile=False):
         self.tensor = Variable(self.tensor, volatile=volatile)
@@ -71,9 +94,27 @@ class Documents(object):
         return original_tensor.index_select(dim=batch_dim, index=self.sorted_idx)
 
 
+class CharDocuments(object):
+    def __init__(self, sentence_char, PAD=0):
+        self.tensor, self.mask_original, self.lengths = padding_2d(sentence_char, PAD)
+
+    def variable(self, volatile=False):
+        self.tensor = Variable(self.tensor, volatile=volatile)
+        self.mask_original = Variable(self.mask_original, volatile=volatile)
+        return self
+
+    def cuda(self,  *args, **kwargs):
+        if torch.cuda.is_available():
+            self.tensor = self.tensor.cuda(*args, **kwargs)
+            self.mask_original = self.mask_original.cuda(*args, **kwargs)
+        return self
+
+
 class SQuAD(Dataset):
-    def __init__(self, path, itos, stoi, itoc, ctoi, tokenizer="nltk", split="train",
+    def __init__(self, path, itos, stoi, itoc, ctoi,
+                 tokenizer="nltk", split="train",
                  debug_mode=False, debug_len=50):
+        """ Build a dataset to fetch batch"""
 
         self.insert_start = stoi.get("<SOS>", None)
         self.insert_end = stoi.get("<EOS>", None)
@@ -110,19 +151,21 @@ class SQuAD(Dataset):
                                                                               example.answer_start, self.tokenizer)
             example.answer_position = (answer_start, answer_end)
 
-    def _char_level_numeralize(self, tokenized_doc):
-        result = []
+    def _char_level_numeralize(self, tokenized_doc, insert_sos=False, insert_eos=False):
+        result = [] if not insert_sos else [self.insert_start]
         for word in tokenized_doc:
             result.append(self._numeralize_word_seq(word, self.ctoi))
+        if insert_eos:
+            result.append(self.insert_end)
         return result
 
-    def _numeralize_word_seq(self, seq, stoi, insert_sos=False, insert_eos=False):
+    def _numeralize_word_seq(self, seq, to_index, insert_sos=False, insert_eos=False):
         if self.insert_start is not None and insert_sos:
             result = [self.insert_start]
         else:
             result = []
         for word in seq:
-            result.append(stoi.get(word, 0))
+            result.append(to_index.get(word, 0))
         if self.insert_end is not None and insert_eos:
             result.append(self.insert_end)
         return result
@@ -169,19 +212,23 @@ class SQuAD(Dataset):
             else:
                 items, question_ids, questions, questions_char, passages, passages_char, passage_tokenized = zip(*examples)
 
-            questions_tensor, question_lengths = padding(questions, this.PAD, batch_first=batch_first)
-            passages_tensor, passage_lengths = padding(passages, this.PAD, batch_first=batch_first)
-
-            # TODO: implement char level embedding
-
-            question_document = Documents(questions_tensor, question_lengths)
-            passages_document = Documents(passages_tensor, passage_lengths)
+            # sentences are not sorted by length
+            question_document = Documents(questions,this.PAD)
+            passages_document = Documents(passages, this.PAD)
+            question_char_document = CharDocuments(questions_char, this.PAD)
+            passage_char_document = CharDocuments(passages_char, this.PAD)
 
             if this.split == "train":
-                return question_ids, question_document, passages_document, torch.LongTensor(answers_positions), answer_texts
+                return (question_ids,
+                        question_document, question_char_document,
+                        passages_document,passage_char_document,
+                        torch.LongTensor(answers_positions), answer_texts)
 
             else:
-                return question_ids, question_document, passages_document, passage_tokenized
+                return (question_ids,
+                        question_document, question_char_document,
+                        passages_document, passage_char_document,
+                        passage_tokenized)
 
         return partial(collate, this=self)
 

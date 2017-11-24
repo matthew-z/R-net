@@ -2,10 +2,11 @@ import os
 import pickle
 
 import torch
-
+from torch import nn
 from trainer import Trainer
 from utils.utils import prepare_data, get_args, read_embedding
-
+import torch.optim.lr_scheduler
+from torch.nn.utils.clip_grad import clip_grad_norm
 
 # TODO: read vocab into a cpu embedding layer
 def read_vocab(vocab_config):
@@ -17,7 +18,6 @@ def read_vocab(vocab_config):
     wv_dict, wv_vectors, wv_size = read_embedding(vocab_config["embedding_root"],
                                                   vocab_config["embedding_type"],
                                                   vocab_config["embedding_dim"])
-
     # embedding size = glove vector size
     embed_size = wv_vectors.size(1)
     print("word embedding size: %d" % embed_size)
@@ -55,6 +55,7 @@ def main():
         "embedding_type": "glove.840B",
         "embedding_dim": 300
     }
+
     print("Reading Vocab", flush=True)
     char_vocab_config = word_vocab_config.copy()
     char_vocab_config["embedding_root"] = os.path.join(args.app_path, "data", "embedding", "char")
@@ -65,14 +66,20 @@ def main():
     itos, stoi, wv_vec = read_vocab(word_vocab_config)
     itoc, ctoi, cv_vec = read_vocab(char_vocab_config)
 
-    char_embedding_config = {"embedding_weights": cv_vec,
-                             "padding_idx": word_vocab_config["<UNK>"],
+    char_embedding_config = {
+                            "char_embedding_size": 16,
+                            "char_num":cv_vec.size(0),
+                            "embedding_weights": cv_vec,
+                            "num_filters":100,
+                            "ngram_filter_sizes":[2, 4, 5],
+                            "activation":torch.nn.ReLU,
+                             "padding_idx": word_vocab_config["<PAD>"],
                              "update": args.update_char_embedding,
                              "bidirectional": args.bidirectional,
-                             "cell_type": "gru", "output_dim": 300}
+                             "cell_type": "gru", "output_dim": None}
 
     word_embedding_config = {"embedding_weights": wv_vec,
-                             "padding_idx": word_vocab_config["<UNK>"],
+                             "padding_idx": word_vocab_config["<PAD>"],
                              "update": args.update_word_embedding}
 
     sentence_encoding_config = {"hidden_size": args.hidden_size,
@@ -104,6 +111,15 @@ def main():
                       "residual": args.residual,
                       "rnn_cell": torch.nn.GRUCell}
 
+    trainer_config = {
+        "lr":1,
+        "optimizer":torch.optim.Adadelta,
+        "scheduler":torch.optim.lr_scheduler.ReduceLROnPlateau,
+        "factor":0.5,
+        "grad_norm":5
+    }
+
+
     print("DEBUG Mode is ", "On" if args.debug else "Off", flush=True)
     train_cache = "./data/cache/SQuAD%s.pkl" % ("_debug" if args.debug else "")
     dev_cache = "./data/cache/SQuAD_dev%s.pkl" % ("_debug" if args.debug else "")
@@ -120,7 +136,7 @@ def main():
     trainer = Trainer(args, train_dataloader, dev_dataloader,
                       char_embedding_config, word_embedding_config,
                       sentence_encoding_config, pair_encoding_config,
-                      self_matching_config, pointer_config)
+                      self_matching_config, pointer_config, trainer_config)
     trainer.train(args.epoch_num)
 
 

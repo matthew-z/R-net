@@ -9,7 +9,8 @@ import torch
 from tensorboard_logger import configure, log_value
 from torch import optim
 from torch.autograd import Variable
-
+import torch.optim.lr_scheduler
+from torch.nn.utils.clip_grad import clip_grad_norm
 import models.r_net as RNet
 from utils.squad_eval import evaluate
 from utils.utils import make_dirs
@@ -25,7 +26,7 @@ def save_checkpoint(state, is_best, path, filename='checkpoint.pth.tar', best_fi
 
 class Trainer(object):
     def __init__(self, args, dataloader_train, dataloader_dev, char_embedding_config, word_embedding_config,
-                 sentence_encoding_config, pair_encoding_config, self_matching_config, pointer_config):
+                 sentence_encoding_config, pair_encoding_config, self_matching_config, pointer_config, trainer_config):
 
         # for validate
         expected_version = "1.1"
@@ -44,7 +45,9 @@ class Trainer(object):
                                 pair_encoding_config, self_matching_config, pointer_config)
         self.parameters_trainable = list(
             filter(lambda p: p.requires_grad, self.model.parameters()))
-        self.optimizer = optim.Adadelta(self.parameters_trainable, rho=0.95)
+        self.optimizer = trainer_config["optimizer"](self.parameters_trainable, rho=0.95, lr=trainer_config["lr"])
+        self.scheduler = trainer_config["scheduler"](self.optimizer, "max",factor=trainer_config["factor"])
+        self.grad_norm = trainer_config["grad_norm"]
         self.best_f1 = 0
         self.step = 0
         self.start_epoch = args.start_epoch
@@ -62,7 +65,7 @@ class Trainer(object):
                 self.model.load_state_dict(checkpoint['state_dict'])
                 self.optimizer.load_state_dict(checkpoint['optimizer'])
                 self.start_time = checkpoint['start_time']
-
+                self.scheduler = checkpoint['scheduler']
                 print("=> loaded checkpoint '{}' (epoch {})"
                       .format(args.resume, checkpoint['epoch']))
             else:
@@ -135,7 +138,8 @@ class Trainer(object):
                 'best_f1': self.best_f1,
                 'name': self.name,
                 'optimizer': self.optimizer.state_dict(),
-                'start_time': self.start_time
+                'start_time': self.start_time,
+                'scheduler':self.scheduler
             }, is_best, self.checkpoint_path)
 
 
@@ -145,10 +149,12 @@ class Trainer(object):
         pred_result = {}
         for _, batch in enumerate(self.dataloader_dev):
 
-            question_ids, questions, passages, passage_tokenized = batch
+            question_ids, questions, question_char, passages, passage_char, passage_tokenized = batch
             questions.variable(volatile=True)
             passages.variable(volatile=True)
-            begin_, end_ = self.model(questions, passages)  # batch x seq
+            question_char.variable(volatile=True)
+            passage_char.variable(volatile=True)
+            begin_, end_ = self.model(questions, question_char, passages, passage_char)  # batch x seq
 
             _, pred_begin = torch.max(begin_, 1)
             _, pred_end = torch.max(end_, 1)
@@ -160,17 +166,20 @@ class Trainer(object):
                 qid = question_ids[i]
                 pred_result[qid] = " ".join(ans)
         self.model.train()
-        return evaluate(self.dev_dataset, pred_result)
+        em, f1 =  evaluate(self.dev_dataset, pred_result)
+        self.scheduler.step(em)
+        return em, f1
 
     def _forward(self, batch):
+        _, questions, question_char, passages, passage_char, answers, _ = batch
 
-        _, questions, passages, answers, _ = batch
         batch_num = questions.tensor.size(0)
 
         questions.variable()
         passages.variable()
-
-        begin_, end_ = self.model(questions, passages)  # batch x seq
+        question_char.variable()
+        passage_char.variable()
+        begin_, end_ = self.model(questions, question_char, passages, passage_char)  # batch x seq
         assert begin_.size(0) == batch_num
 
         answers = Variable(answers)
@@ -191,4 +200,13 @@ class Trainer(object):
     def _update_param(self, loss):
         self.model.zero_grad()
         loss.backward()
+        self._rescale_gradients()
         self.optimizer.step()
+
+
+    def _rescale_gradients(self) -> None:
+        """
+        Performs gradient rescaling. Is a no-op if gradient rescaling is not enabled.
+        """
+        if self.grad_norm:
+            clip_grad_norm(self.model.parameters(), self.grad_norm)

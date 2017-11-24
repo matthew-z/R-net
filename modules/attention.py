@@ -24,12 +24,7 @@ class AttentionPooling(nn.Module):
 
         return scores
 
-    def _pointer_output(self, source, source_mask, score_unnormalized):
-        if source_mask is not None:
-            score_unnormalized.data.masked_fill_(source_mask.data != 1, -1e12)
-        n_batch, question_len, _ = source.size()
-        output = score_unnormalized.view(n_batch, question_len)
-        return output
+
 
     def forward(self, key, queries, key_mask=None, values=None, return_key_scores=False, broadcast_key=False):
         """
@@ -53,6 +48,10 @@ class AttentionPooling(nn.Module):
 
         key_mask = key_mask.unsqueeze(2)
         curr_batch_size = queries[0].size(0)
+        #
+        # if return_key_scores:
+        #     import ipdb
+        #     ipdb.set_trace()
 
         if key.size(0) != curr_batch_size and not broadcast_key:
             key = key[:curr_batch_size]

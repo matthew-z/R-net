@@ -107,7 +107,7 @@ class AttentionEncoderCell(StackedCell):
             hidden_for_attention = hidden[0]
         else:
             hidden_for_attention = hidden
-        hidden_for_attention = hidden_for_attention[0:1]
+        hidden_for_attention = hidden_for_attention[-1:]
         #
         key = context
         if self.attn_mode == "pair_encoding":
