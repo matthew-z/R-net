@@ -24,3 +24,7 @@ python main.py --batch_size 64
 
 Char-Level embedding with RNN is too slow and requires much GPU memory, so I removed it from my implementation.
 I plan to try using CNN to do char-level embedding.
+
+**Performance**
+
+I would like to recommend https://github.com/HKUST-KnowComp/R-Net (Tensorflow) if you are looking for high performance. Currently my implementation has not fully reached the paper's performance.
