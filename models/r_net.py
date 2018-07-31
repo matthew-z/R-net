@@ -137,7 +137,7 @@ class _RNet(nn.Module):
         # embed words using char-level and word-level and concat them
         question, passage = self.sentence_encoder(question, passage)
         passage = self.pair_encoder(question, question_mask, passage)
-        passage = self.self_match_encode(rpassage, passage_mask, passage)
+        passage = self.self_match_encode(passage, passage_mask, passage)
         begin, end = self.pointer_net(question,
                                       question_mask,
                                       passage,
