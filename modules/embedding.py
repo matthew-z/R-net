@@ -3,7 +3,7 @@
 from torch import nn
 from torch.nn.utils.rnn import pack_padded_sequence
 
-from modules import RNN
+from modules import recurrent
 
 
 class CharLevelEmbedding(nn.Module):
@@ -13,7 +13,7 @@ class CharLevelEmbedding(nn.Module):
         self.embedding = nn.Embedding(vocab_size, embedding_dim=char_embedding_dim, padding_idx=padding_idx)
         if char_embedding_tensor is not None:
             self.embedding.weight.data.copy_(char_embedding_tensor)
-        self.network = RNN(char_embedding_dim, output_dim, bidirectional=bidirectional,
+        self.network = recurrent.RNN(char_embedding_dim, output_dim, bidirectional=bidirectional,
                            cell_type=cell_type, num_layers=num_layers, pack=True, batch_first=True)
 
         if bidirectional:

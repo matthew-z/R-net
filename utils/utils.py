@@ -13,7 +13,7 @@ import six
 import torch
 from six.moves.urllib.request import urlretrieve
 from tqdm import trange, tqdm
-
+import spacy
 URL = {
     'glove.42B': 'http://nlp.stanford.edu/data/glove.42B.300d.zip',
     'glove.840B': 'http://nlp.stanford.edu/data/glove.840B.300d.zip',
@@ -51,6 +51,27 @@ def get_args():
     args = parser.parse_args()
     return args
 
+
+def set_tokenizer(tokenizer):
+    """
+    Set tokenizer
+
+    :param tokenizer: tokenization method
+    :return: None
+    """
+    if tokenizer == "nltk":
+        tokenizer = nltk.word_tokenize
+    elif tokenizer == "spacy":
+        spacy_en = spacy.load("en")
+
+        def spacy_tokenizer(seq):
+            return [w.text for w in spacy_en(seq)]
+
+        tokenizer = spacy_tokenizer
+    else:
+        raise ValueError("Invalid tokenizing method %s" % tokenizer)
+
+    return tokenizer
 
 def reporthook(t):
     """https://github.com/tqdm/tqdm"""
@@ -210,7 +231,7 @@ def maybe_download(url, download_path, filename):
 
 
 def read_train_json(path, debug_mode, debug_len, delete_long_context=True, delete_long_question=True,
-                    longest_context=300, longest_question=30):
+                    longest_context=300, longest_question=50):
     with open(path) as fin:
         data = json.load(fin)
     examples = []

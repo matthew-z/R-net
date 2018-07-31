@@ -4,14 +4,13 @@ from torch.nn.utils.rnn import pad_packed_sequence, pack_padded_sequence, Packed
 
 from utils.utils import get_rnn
 
-
 class RNN(nn.Module):
     """ RNN Module """
 
     def __init__(self, input_size, hidden_size,
                  output_projection_size=None, num_layers=1,
                  bidirectional=True, cell_type="lstm", dropout=0,
-                 pack=False, batch_first=False, init_method="default"):
+                 pack=False, batch_first=False):
         super().__init__()
         self.input_layer = nn.Linear(input_size, hidden_size)
 
@@ -36,6 +35,7 @@ class RNN(nn.Module):
                 outputs = self.output_layer(outputs)
 
         return outputs, hidden
+
 
 
 class StackedCell(nn.Module):

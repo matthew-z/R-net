@@ -4,71 +4,49 @@ from torch.nn.utils.rnn import pad_packed_sequence, pack_padded_sequence
 
 from modules.attention import AttentionPooling
 from modules.recurrent import AttentionEncoderCell, AttentionEncoder, RNN, StackedCell
+from modules.pair_encoder import PairEncodeCell, bidirectional_unroll_cell, unroll_cell, SelfMatchCell
 
 
-class PairEncoder(nn.Module):
-    def __init__(self, question_embed_size, passage_embed_size, hidden_size,
-                 bidirectional, mode, num_layers, dropout,
-                 residual, gated, rnn_cell,
-                 cell_factory=AttentionEncoderCell):
+class _Encoder(nn.Module):
+    def __init__(self, question_size, passage_size, hidden_size, attention_size,
+                 bidirectional, dropout, cell_factory):
         super().__init__()
 
-        attn_args = [question_embed_size, passage_embed_size, hidden_size]
-        attn_kwargs = {"attn_size": 75, "batch_first": False}
+        cell_fn = lambda: cell_factory(passage_size, cell=nn.GRUCell(passage_size, hidden_size),
+                                       attention_size=attention_size, memory_size=question_size)
 
-        self.pair_encoder = AttentionEncoder(
-            cell_factory,
-            question_embed_size,
-            passage_embed_size,
-            hidden_size,
-            AttentionPooling,
-            attn_args,
-            attn_kwargs,
-            bidirectional=bidirectional,
-            mode=mode,
-            num_layers=num_layers,
-            dropout=dropout,
-            residual=residual,
-            gated=gated,
-            rnn_cell=rnn_cell,
-            attn_mode="pair_encoding"
-        )
+        num_directions = 2 if bidirectional else 1
 
-    def forward(self, questions, question_mark, passage):
-        inputs = (passage, questions, question_mark)
-        result = self.pair_encoder(inputs)
-        return result
+        self.cells = [cell_fn() for _ in range(num_directions)]
+        self.bidirectional = bidirectional
+        self.dropout = nn.Dropout(dropout)
+
+    def forward(self, question, question_mask, passage):
+        self.cell.feed_memory(question, question_mask)
+
+        if self.bidirectional:
+            cell_fw, cell_bw = self.cells
+            output, _ = bidirectional_unroll_cell(cell_fw, cell_bw, passage, batch_first=True)
+
+        else:
+            cell, = self.cells
+            output, _ = unroll_cell(cell, passage, batch_first=True)
+
+        return self.dropout(output)
 
 
-class SelfMatchingEncoder(nn.Module):
-    def __init__(self, passage_embed_size, hidden_size,
-                 bidirectional, mode, num_layers,
-                 dropout, residual, gated,
-                 rnn_cell,
-                 cell_factory=AttentionEncoderCell):
-        super().__init__()
-        attn_args = [passage_embed_size, passage_embed_size]
-        attn_kwargs = {"attn_size": 75, "batch_first": False}
+class PairEncoder(_Encoder):
+    def __init__(self, question_size, passage_size, hidden_size, attention_size,
+                 bidirectional, dropout):
+        super().__init__(question_size, passage_size, hidden_size, attention_size,
+                         bidirectional, dropout, PairEncodeCell)
 
-        self.pair_encoder = AttentionEncoder(
-            cell_factory, passage_embed_size, passage_embed_size,
-            hidden_size,
-            AttentionPooling,
-            attn_args,
-            attn_kwargs,
-            bidirectional=bidirectional,
-            mode=mode,
-            num_layers=num_layers,
-            dropout=dropout,
-            residual=residual,
-            gated=gated,
-            rnn_cell=rnn_cell,
-            attn_mode="self_matching"
-        )
 
-    def forward(self, questions, question_mark, passage):
-        inputs = (passage, questions, question_mark)
-        return self.pair_encoder(inputs)
+class SelfMatchEncoder(_Encoder):
+    def __init__(self, question_size, passage_size, hidden_size, attention_size,
+                 bidirectional, dropout):
+        super().__init__(question_size, passage_size, hidden_size, attention_size,
+                         bidirectional, dropout, SelfMatchCell)
 
 
 class Max(nn.Module):
@@ -99,7 +77,6 @@ class CharLevelWordEmbeddingCnn(nn.Module):
                  requires_grad=True
                  ):
         super().__init__()
-
 
         if embedding_weights is not None:
             char_num, char_embedding_size = embedding_weights.size()
@@ -138,7 +115,7 @@ class CharLevelWordEmbeddingCnn(nn.Module):
 
         batch_num, word_num, char_num = tensor.size()
         tensor = self.embed_char(tensor.view(-1, char_num)).transpose(1, 2)
-        #import ipdb; ipdb.set_trace()
+        # import ipdb; ipdb.set_trace()
         conv_out = [layer(tensor) for layer in self.cnn_layers]
         output = torch.cat(conv_out, dim=1) if len(conv_out) > 1 else conv_out[0]
 
@@ -182,17 +159,19 @@ class SentenceEncoding(nn.Module):
     def __init__(self, input_size, hidden_size, num_layers, bidirectional, dropout):
         super().__init__()
 
-        self.question_encoder = RNN(input_size,
-                                    hidden_size=hidden_size,
-                                    num_layers=num_layers,
-                                    bidirectional=bidirectional,
-                                    dropout=dropout)
+        self.question_encoder = nn.GRU(
+            input_size=input_size,
+            hidden_size=hidden_size,
+            num_layers=num_layers,
+            bidirectional=bidirectional,
+            dropout=dropout)
 
-        self.passage_encoder = RNN(input_size,
-                                   hidden_size=hidden_size,
-                                   num_layers=num_layers,
-                                   bidirectional=bidirectional,
-                                   dropout=dropout)
+        self.passage_encoder = nn.GRU(
+            input_size,
+            hidden_size=hidden_size,
+            num_layers=num_layers,
+            bidirectional=bidirectional,
+            dropout=dropout)
 
     def forward(self, question_pack, context_pack):
         question_outputs, _ = self.question_encoder(question_pack)
@@ -234,12 +213,11 @@ class PointerNetwork(nn.Module):
 
         return ans_begin, ans_end
 
-
-def pack_residual(x_pack, y_pack):
-    x_tensor, x_lengths = pad_packed_sequence(x_pack)
-    y_tensor, y_lengths = pad_packed_sequence(y_pack)
-
-    if x_lengths != y_lengths:
-        raise ValueError("different lengths")
-
-    return pack_padded_sequence(x_tensor + y_tensor, x_lengths)
+# def pack_residual(x_pack, y_pack):
+#     x_tensor, x_lengths = pad_packed_sequence(x_pack)
+#     y_tensor, y_lengths = pad_packed_sequence(y_pack)
+#
+#     if x_lengths != y_lengths:
+#         raise ValueError("different lengths")
+#
+#     return pack_padded_sequence(x_tensor + y_tensor, x_lengths)

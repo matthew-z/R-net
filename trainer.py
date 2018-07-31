@@ -41,8 +41,8 @@ class Trainer(object):
         self.dataloader_train = dataloader_train
         self.dataloader_dev = dataloader_dev
 
-        self.model = RNet.Model(args, char_embedding_config, word_embedding_config, sentence_encoding_config,
-                                pair_encoding_config, self_matching_config, pointer_config)
+        self.model = RNet.RNet(args, char_embedding_config, word_embedding_config, sentence_encoding_config,
+                               pair_encoding_config, self_matching_config, pointer_config)
         self.parameters_trainable = list(
             filter(lambda p: p.requires_grad, self.model.parameters()))
         self.optimizer = trainer_config["optimizer"](self.parameters_trainable, rho=0.95, lr=trainer_config["lr"])
