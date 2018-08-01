@@ -91,19 +91,13 @@ def main():
                             "num_layers": args.num_layers,
                             "bidirectional": args.bidirectional,
                             "dropout": args.dropout,
-                            "gated": True, "mode": "GRU",
-                            "rnn_cell": torch.nn.GRUCell,
-                            "attn_size": args.attention_size,
-                            "residual": args.residual}
+                            "attention_size": args.attention_size}
 
     self_matching_config = {"hidden_size": args.hidden_size,
                             "num_layers": args.num_layers,
                             "bidirectional": args.bidirectional,
                             "dropout": args.dropout,
-                            "gated": True, "mode": "GRU",
-                            "rnn_cell": torch.nn.GRUCell,
-                            "attn_size": args.attention_size,
-                            "residual": args.residual}
+                            "attention_size": args.attention_size}
 
     pointer_config = {"hidden_size": args.hidden_size,
                       "num_layers": args.num_layers,
@@ -131,7 +125,7 @@ def main():
     dev = read_dataset(dev_json, itos, stoi, itoc, ctoi, dev_cache, args.debug, split="dev")
 
     dev_dataloader = dev.get_dataloader(args.batch_size_dev)
-    train_dataloader = train.get_dataloader(args.batch_size, shuffle=True, pin_memory=args.pin_memory)
+    train_dataloader = train.get_dataloader(args.batch_size, shuffle=True)
 
     trainer = Trainer(args, train_dataloader, dev_dataloader,
                       char_embedding_config, word_embedding_config,

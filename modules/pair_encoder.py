@@ -13,7 +13,7 @@ class _PairEncodeCell(nn.Module):
 
         attention_input_size = input_size + memory_size
         if use_state_in_attention:
-            attention_size += cell.hidden_size
+            attention_input_size += cell.hidden_size
 
         self.attention_w = nn.Sequential(
             nn.Linear(attention_input_size, attention_size, bias=False),
@@ -28,18 +28,23 @@ class _PairEncodeCell(nn.Module):
         self.memory = memory
         self.memory_mask = memory_mask.float().unsqueeze(-1)
 
-    def forward(self, input, state):
+    def forward(self, input, state=None):
         memory = self.memory
         if memory is None:
             raise AttributeError("memory has not been set")
+
+        if state is None:
+            state = input.new_zeros(input.size(0), self.cell.hidden_size, requires_grad=False)
 
         if self.use_state:
             hx = state
             if isinstance(state, tuple):
                 hx = state[0]
-            attention_input = torch.cat([input, hx], dim=-1).unsqueeze(1).expand(-1, self.memory.size(1), -1)
+            attention_input = torch.cat([input, hx], dim=-1)
+            attention_input = attention_input.unsqueeze(1).expand(-1, self.memory.size(1), -1)
         else:
             attention_input = input.unsqueeze(1).expand(-1, self.memory.size(1), -1)
+        # import ipdb; ipdb.set_trace()
         attention_logits = self.attention_v(self.attention_w(torch.cat([attention_input, memory], dim=-1)))
 
         attention_scores = F.softmax(attention_logits * self.memory_mask)
@@ -67,8 +72,8 @@ def unroll_cell(cell, input, batch_first=False, initial_state=None):
     output = []
     state = initial_state
     for t, input_t in enumerate(input):
-        o, state = cell(input_t, state)
-        output.append(o)
+        state = cell(input_t, state)
+        output.append(state)
     output = torch.stack(output, dim=1 if batch_first else 0)
     return output, state
 
@@ -83,8 +88,10 @@ def bidirectional_unroll_cell(cell_fw, cell_bw, input, batch_first=False, initia
     return torch.cat([output_fw, output_bw], dim=-1), (state_fw, state_bw)
 
 if __name__ == "__main__":
-    x = torch.rand(32, 50)
+    x = torch.rand(32, 20, 50)
     memory = torch.rand(32, 15, 50)
+    memory_mask = torch.rand(32, 15)
     decoder_cell = PairEncodeCell(50, nn.GRUCell(100, 50), 75)
-    decoder_cell.feed_memory(memory)
-    decoder_cell(x, torch.zeros(32, 50))
+    decoder_cell.feed_memory(memory, memory_mask)
+    output, state =unroll_cell(decoder_cell, x, batch_first=True)
+    print(output.shape)

@@ -20,21 +20,21 @@ class RNet(nn.Module):
             padding_idx=word_embedding_config["padding_idx"],
             requires_grad=word_embedding_config["update"])
 
-        self.char_embedding = CharLevelWordEmbeddingCnn(
-            char_embedding_size=char_embedding_config["char_embedding_size"],
-            char_num=char_embedding_config["char_num"],
-            num_filters=char_embedding_config["num_filters"],
-            ngram_filter_sizes=char_embedding_config["ngram_filter_sizes"],
-            output_dim=char_embedding_config["output_dim"],
-            activation=char_embedding_config["activation"],
-            embedding_weights=char_embedding_config["embedding_weights"],
-            padding_idx=char_embedding_config["padding_idx"],
-            requires_grad=char_embedding_config["update"]
-        )
+        # self.char_embedding = CharLevelWordEmbeddingCnn(
+        #     char_embedding_size=char_embedding_config["char_embedding_size"],
+        #     char_num=char_embedding_config["char_num"],
+        #     num_filters=char_embedding_config["num_filters"],
+        #     ngram_filter_sizes=char_embedding_config["ngram_filter_sizes"],
+        #     output_dim=char_embedding_config["output_dim"],
+        #     activation=char_embedding_config["activation"],
+        #     embedding_weights=char_embedding_config["embedding_weights"],
+        #     padding_idx=char_embedding_config["padding_idx"],
+        #     requires_grad=char_embedding_config["update"]
+        # )
 
         # we are going to concat the output of two embedding methods
-        embedding_dim = self.word_embedding.output_dim + self.char_embedding.output_dim
-
+        # embedding_dim = self.word_embedding.output_dim + self.char_embedding.output_dim
+        embedding_dim = self.word_embedding.output_dim
         self.r_net = _RNet(args,
                            embedding_dim,
                            sentence_encoding_config,
@@ -52,25 +52,25 @@ class RNet(nn.Module):
                 passage_char,
                 passage_mask):
         # Embedding using Glove
-        question, passage = self.word_embedding(question.tensor, passage.tensor)
+        question, passage = self.word_embedding(question, passage)
 
         if torch.cuda.is_available():
-            question_char = question_char.cuda(self.args.device_id)
-            passage_char = passage_char.cuda(self.args.device_id)
+            # question_char = question_char.cuda(self.args.device_id)
+            # passage_char = passage_char.cuda(self.args.device_id)
             question = question.cuda(self.args.device_id)
             passage = passage.cuda(self.args.device_id)
             question_mask = question_mask.cuda(self.args.device_id)
             passage_mask = passage_mask.cuda(self.args.device_id)
 
-        # char level embedding
-        question_char = self.char_embedding(question_char.tensor)
-        passage_char = self.char_embedding(passage_char.tensor)
+        # # char level embedding
+        # question_char = self.char_embedding(question_char)
+        # passage_char = self.char_embedding(passage_char)
+        #
+        # # concat word embedding and char level embedding
+        # passage = torch.cat([passage, passage_char], dim=-1)
+        # question = torch.cat([question, question_char], dim=-1)
 
-        # concat word embedding and char level embedding
-        passage = torch.cat([passage, passage_char], dim=-1)
-        question = torch.cat([question, question_char], dim=-1)
-
-        return self.r_net(passage, passage_mask, question, question_mask)
+        return self.r_net(question, question_mask, passage, passage_mask)
 
     def cuda(self, *args, **kwargs):
         self.r_net.cuda(*args, **kwargs)
@@ -95,8 +95,8 @@ class _RNet(nn.Module):
         sentence_encoding_direction = (2 if sentence_encoding_config["bidirectional"] else 1)
         sentence_encoding_size = (sentence_encoding_config["hidden_size"] * sentence_encoding_direction)
         self.pair_encoder = PairEncoder(
-            question_size=sentence_encoding_size,
-            passage_size=sentence_encoding_size,
+            memory_size=sentence_encoding_size,
+            input_size=sentence_encoding_size,
             hidden_size=pair_encoding_config["hidden_size"],
             bidirectional=pair_encoding_config["bidirectional"],
             dropout=pair_encoding_config["dropout"],
@@ -106,10 +106,9 @@ class _RNet(nn.Module):
         pair_encoding_num_direction = (2 if pair_encoding_config["bidirectional"] else 1)
         pair_encoding_size = pair_encoding_config["hidden_size"] * pair_encoding_num_direction
 
-
-        self.self_matching_encoder = SelfMatchEncoder(
-            question_size=sentence_encoding_size,
-            passage_size=pair_encoding_size,
+        self.self_match_encoder = SelfMatchEncoder(
+            memory_size=sentence_encoding_size,
+            input_size=pair_encoding_size,
             hidden_size=self_matching_config["hidden_size"],
             bidirectional=self_matching_config["bidirectional"],
             dropout=self_matching_config["dropout"],
@@ -121,13 +120,12 @@ class _RNet(nn.Module):
         self.pointer_net = PointerNetwork(
             question_size=sentence_encoding_size,
             passage_size=passage_size,
-            num_layers=pointer_config["num_layers"],
             dropout=pointer_config["dropout"],
             cell_type=pointer_config["rnn_cell"])
 
         for weight in self.parameters():
             if weight.ndimension() >= 2:
-                nn.init.orthogonal(weight)
+                nn.init.orthogonal_(weight)
 
     def forward(self,
                 question,
@@ -136,11 +134,8 @@ class _RNet(nn.Module):
                 passage_mask):
         # embed words using char-level and word-level and concat them
         question, passage = self.sentence_encoder(question, passage)
-        passage = self.pair_encoder(question, question_mask, passage)
-        passage = self.self_match_encode(passage, passage_mask, passage)
-        begin, end = self.pointer_net(question,
-                                      question_mask,
-                                      passage,
-                                      passage_mask)
+        # passage = self.pair_encoder(question, question_mask, passage)
+        # passage = self.self_match_encoder(passage, passage_mask, passage)
+        begin, end = self.pointer_net(question, question_mask, passage, passage_mask)
 
         return begin, end

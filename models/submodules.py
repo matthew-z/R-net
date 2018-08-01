@@ -1,51 +1,53 @@
 import torch
 from torch import nn
-from torch.nn.utils.rnn import pad_packed_sequence, pack_padded_sequence
 
 from modules.attention import AttentionPooling
-from modules.recurrent import AttentionEncoderCell, AttentionEncoder, RNN, StackedCell
 from modules.pair_encoder import PairEncodeCell, bidirectional_unroll_cell, unroll_cell, SelfMatchCell
+from modules.recurrent import StackedCell
 
 
 class _Encoder(nn.Module):
-    def __init__(self, question_size, passage_size, hidden_size, attention_size,
+    def __init__(self, memory_size, input_size, hidden_size, attention_size,
                  bidirectional, dropout, cell_factory):
         super().__init__()
 
-        cell_fn = lambda: cell_factory(passage_size, cell=nn.GRUCell(passage_size, hidden_size),
-                                       attention_size=attention_size, memory_size=question_size)
+        cell_fn = lambda: cell_factory(input_size, cell=nn.GRUCell(input_size+memory_size, hidden_size),
+                                       attention_size=attention_size, memory_size=memory_size)
 
         num_directions = 2 if bidirectional else 1
-
-        self.cells = [cell_fn() for _ in range(num_directions)]
         self.bidirectional = bidirectional
+
+        self.cells = nn.ModuleList([cell_fn() for _ in range(num_directions)])
         self.dropout = nn.Dropout(dropout)
 
-    def forward(self, question, question_mask, passage):
-        self.cell.feed_memory(question, question_mask)
+    def forward(self, memory, memory_mask, input):
+
+        for cell in self.cells:
+            cell.feed_memory(memory, memory_mask)
 
         if self.bidirectional:
             cell_fw, cell_bw = self.cells
-            output, _ = bidirectional_unroll_cell(cell_fw, cell_bw, passage, batch_first=True)
+            output, _ = bidirectional_unroll_cell(cell_fw, cell_bw, input, batch_first=True)
 
         else:
             cell, = self.cells
-            output, _ = unroll_cell(cell, passage, batch_first=True)
+            output, _ = unroll_cell(cell, input, batch_first=True)
 
         return self.dropout(output)
 
 
+
 class PairEncoder(_Encoder):
-    def __init__(self, question_size, passage_size, hidden_size, attention_size,
+    def __init__(self, memory_size, input_size, hidden_size, attention_size,
                  bidirectional, dropout):
-        super().__init__(question_size, passage_size, hidden_size, attention_size,
+        super().__init__(memory_size, input_size, hidden_size, attention_size,
                          bidirectional, dropout, PairEncodeCell)
 
 
 class SelfMatchEncoder(_Encoder):
-    def __init__(self, question_size, passage_size, hidden_size, attention_size,
+    def __init__(self, memory_size, input_size, hidden_size, attention_size,
                  bidirectional, dropout):
-        super().__init__(question_size, passage_size, hidden_size, attention_size,
+        super().__init__(memory_size, input_size, hidden_size, attention_size,
                          bidirectional, dropout, SelfMatchCell)
 
 
@@ -173,19 +175,21 @@ class SentenceEncoding(nn.Module):
             bidirectional=bidirectional,
             dropout=dropout)
 
-    def forward(self, question_pack, context_pack):
-        question_outputs, _ = self.question_encoder(question_pack)
-        passage_outputs, _ = self.passage_encoder(context_pack)
+    def forward(self, question, passage):
+        question_outputs, _ = self.question_encoder(question)
+        passage_outputs, _ = self.passage_encoder(passage)
         return question_outputs, passage_outputs
 
 
 class PointerNetwork(nn.Module):
     def __init__(self, question_size, passage_size, attn_size=None,
-                 cell_type=nn.GRUCell, num_layers=1, dropout=0, residual=False, **kwargs):
+                 cell_type=nn.GRUCell, num_layers=1, dropout=0, residual=False, batch_first=True):
         super().__init__()
         self.num_layers = num_layers
         if attn_size is None:
             attn_size = question_size
+
+        self.batch_first = batch_first
 
         # TODO: what is V_q? (section 3.4)
         v_q_size = question_size
@@ -196,28 +200,25 @@ class PointerNetwork(nn.Module):
 
         self.V_q = nn.Parameter(torch.randn(1, 1, v_q_size), requires_grad=True)
         self.cell = StackedCell(question_size, question_size, num_layers=num_layers,
-                                dropout=dropout, rnn_cell=cell_type, residual=residual, **kwargs)
+                                dropout=dropout, rnn_cell=cell_type, residual=residual)
 
-    def forward(self, question_pad, question_mask, passage_pad, passage_mask):
-        hidden = self.question_pooling(question_pad, self.V_q,
+    def forward(self, question, question_mask, passage, passage_mask):
+        if self.batch_first:
+            question = question.transpose(0, 1)
+            question_mask = question_mask.transpose(0, 1)
+            passage = passage.transpose(0, 1)
+            passage_mask = passage_mask.transpose(0, 1)
+
+        hidden = self.question_pooling(question, self.V_q,
                                        key_mask=question_mask, broadcast_key=True)  # 1 x batch x n
-
-        inputs, ans_begin = self.passage_pooling(passage_pad, hidden,
+        inputs, ans_begin = self.passage_pooling(passage, hidden,
                                                  key_mask=passage_mask, return_key_scores=True)
-
         hidden = hidden.expand([self.num_layers, hidden.size(1), hidden.size(2)])
 
         output, hidden = self.cell(inputs.squeeze(0), hidden)
-        _, ans_end = self.passage_pooling(passage_pad, output.unsqueeze(0),
+        _, ans_end = self.passage_pooling(passage, output.unsqueeze(0),
                                           key_mask=passage_mask, return_key_scores=True)
 
+        ans_begin = ans_begin.transpose(0, 1)
+        ans_end = ans_end.transpose(0, 1)
         return ans_begin, ans_end
-
-# def pack_residual(x_pack, y_pack):
-#     x_tensor, x_lengths = pad_packed_sequence(x_pack)
-#     y_tensor, y_lengths = pad_packed_sequence(y_pack)
-#
-#     if x_lengths != y_lengths:
-#         raise ValueError("different lengths")
-#
-#     return pack_padded_sequence(x_tensor + y_tensor, x_lengths)

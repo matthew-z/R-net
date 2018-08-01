@@ -93,9 +93,10 @@ class Trainer(object):
             last_time = time.time()
 
             for batch_idx, batch_train in enumerate(self.dataloader_train):
+
                 loss, acc = self._forward(batch_train)
-                global_loss += loss.data[0]
-                global_acc += acc
+                global_loss +=  loss.item
+                global_acc += acc.item
                 self._update_param(loss)
 
                 if self.step % 10 == 0:
@@ -118,10 +119,11 @@ class Trainer(object):
                     last_time = time.time()
                 self.step += 1
 
-            exact_match, f1 = self.eval()
+            with torch.no_grad():
+                exact_match, f1 = self.eval()
+
             print("exact_match: %f)" % exact_match, flush=True)
             print("f1: %f)" % f1, flush=True)
-
             log_value('dev/f1', f1, self.step)
             log_value('dev/EM', exact_match, self.step)
 
@@ -149,12 +151,9 @@ class Trainer(object):
         pred_result = {}
         for _, batch in enumerate(self.dataloader_dev):
 
-            question_ids, questions, question_char, passages, passage_char, passage_tokenized = batch
-            questions.variable(volatile=True)
-            passages.variable(volatile=True)
-            question_char.variable(volatile=True)
-            passage_char.variable(volatile=True)
-            begin_, end_ = self.model(questions, question_char, passages, passage_char)  # batch x seq
+            question_ids, question, question_char, question_mask, \
+            passage, passage_char, passage_mask, passage_tokenized = batch
+            begin_, end_ = self.model(question, question_char, question_mask, passage, passage_char, passage_mask)  # batch x seq
 
             _, pred_begin = torch.max(begin_, 1)
             _, pred_end = torch.max(end_, 1)
@@ -171,26 +170,22 @@ class Trainer(object):
         return em, f1
 
     def _forward(self, batch):
-        _, questions, question_char, passages, passage_char, answers, _ = batch
+        qid, question, question_char, question_mask, \
+        passage, passage_char, passage_mask, answer = batch
 
-        batch_num = questions.tensor.size(0)
+        batch_num = question.size(0)
 
-        questions.variable()
-        passages.variable()
-        question_char.variable()
-        passage_char.variable()
-        begin_, end_ = self.model(questions, question_char, passages, passage_char)  # batch x seq
+        begin_, end_ = self.model(question, question_char, question_mask, passage, passage_char, passage_mask)  # batch x seq
+
         assert begin_.size(0) == batch_num
-
-        answers = Variable(answers)
         if torch.cuda.is_available():
-            answers = answers.cuda()
-        begin, end = answers[:, 0], answers[:, 1]
+            answer = answer.cuda()
+        begin, end = answer[:, 0], answer[:, 1]
+
         loss = self.loss_fn(begin_, begin) + self.loss_fn(end_, end)
 
         _, pred_begin = torch.max(begin_, 1)
         _, pred_end = torch.max(end_, 1)
-
         exact_correct_num = torch.sum(
             (pred_begin == begin) * (pred_end == end))
         em = exact_correct_num.data[0] / batch_num
@@ -208,5 +203,6 @@ class Trainer(object):
         """
         Performs gradient rescaling. Is a no-op if gradient rescaling is not enabled.
         """
+        import ipdb; ipdb.set_trace()
         if self.grad_norm:
             clip_grad_norm(self.model.parameters(), self.grad_norm)

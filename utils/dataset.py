@@ -5,9 +5,9 @@ from torch.utils.data import DataLoader
 from torch.utils.data import Dataset
 
 from utils.utils import read_train_json, read_dev_json, tokenized_by_answer, set_tokenizer
+import progressbar
 
-
-def padding(seqs, device, pad_value=0, output_batch_first=True):
+def padding(seqs, pad_value=0, output_batch_first=True):
     """
     :param seqs: sequence of seq_length x dim
     """
@@ -15,8 +15,8 @@ def padding(seqs, device, pad_value=0, output_batch_first=True):
 
     seqs = [torch.Tensor(s) for s in seqs]
     batch_length = max(lengths)
-    seq_tensor = torch.Tensor(batch_length, len(seqs), device=device, dtype=torch.int64).fill_(pad_value)
-    mask = torch.Tensor(seq_tensor.size(), device=device, dtype=torch.int64).fill_(0)
+    seq_tensor = torch.full([batch_length, len(seqs)], pad_value, dtype=torch.int64)
+    mask = torch.zeros(seq_tensor.size(),dtype=torch.int64)
 
     for i, s in enumerate(seqs):
         end_seq = lengths[i]
@@ -28,7 +28,7 @@ def padding(seqs, device, pad_value=0, output_batch_first=True):
     return (seq_tensor, mask, lengths)
 
 
-def padding_2d(seqs, device, pad_value=0):
+def padding_2d(seqs,  pad_value=0):
     """
     :param seqs:  sequence of sentences, each word is a list of chars
     """
@@ -40,8 +40,8 @@ def padding_2d(seqs, device, pad_value=0):
         for word in seq:
             word_length = max(word_length, len(word))
 
-    tensor = torch.Tensor(len(seqs), sentence_length, word_length, device=device, dtype=torch.int64).fill_(pad_value)
-    mask = torch.Tensor(tensor.size(), device=device, dtype=torch.int64).fill_(0)
+    tensor = torch.full([len(seqs), sentence_length, word_length], pad_value,  dtype=torch.int64)
+    mask = torch.zeros(tensor.size(),dtype=torch.int64)
     for i, s in enumerate(seqs):
         lengths.append([])
         for j, w in enumerate(s):
@@ -49,40 +49,6 @@ def padding_2d(seqs, device, pad_value=0):
             mask[i, j, :len(w)].fill_(1)
             lengths[-1].append(len(w))
     return tensor, mask, lengths
-
-
-#
-#
-# class Sequence(object):
-#     """
-#         Helper class for organizing and sorting seqs
-#
-#         should be batch_first for embedding
-#     """
-#
-#     def __init__(self, sequence, pad_value=0):
-#         self.tensor, self.mask, self.length = padding(
-#             sequence, pad_value)
-#
-#     def cuda(self, *args, **kwargs):
-#         if torch.cuda.is_available():
-#             # self.tensor = self.tensor.cuda(*args, **kwargs)
-#             self.mask = self.mask.cuda(*args, **kwargs)
-#
-#         return self
-#
-#
-# class CharSequence(object):
-#     def __init__(self, sequence, pad_value=0):
-#         self.tensor, self.mask, self.length = padding_2d(sequence, pad_value)
-#
-#     def cuda(self, *args, **kwargs):
-#         if torch.cuda.is_available():
-#             # self.tensor = self.tensor.cuda(*args, **kwargs)
-#             self.mask = self.mask.cuda(*args, **kwargs)
-#
-#         return self
-
 
 class SQuAD(Dataset):
     def __init__(self, path, itos, stoi, itoc, ctoi,
@@ -118,15 +84,14 @@ class SQuAD(Dataset):
             for example in self.examples:
                 example.tokenized_passage = tokenizer(example.passage)
 
-        for example in self.examples:
+        for example in progressbar.progressbar(self.examples):
             example.tokenized_question = tokenizer(example.question)
             example.numeralized_question = self._numeralize_word_seq(example.tokenized_question, self.stoi)
             example.numeralized_passage = self._numeralize_word_seq(example.tokenized_passage, self.stoi)
             example.numeralized_question_char = self._char_level_numeralize(example.tokenized_question)
             example.numeralized_passage_char = self._char_level_numeralize(example.tokenized_passage)
 
-        self.examples = filter(lambda e:len(e.numeralized_passage) < 300, self.examples)
-
+        self.examples = [example for example in self.examples if len(example.tokenized_passage) <= 300]
         if self.split != "train":
             self.examples.sort(key=lambda example: len(example.numeralized_passage), reverse=True)
 
@@ -164,7 +129,10 @@ class SQuAD(Dataset):
             raise NotImplementedError
 
         if device is None:
-            device = torch.device('cpu')
+            if torch.cuda.is_available():
+                device = torch.device('cuda')
+            else:
+                device = torch.device('cpu')
 
         def collate(examples, this):
             if this.split == "train":
@@ -177,24 +145,22 @@ class SQuAD(Dataset):
                     *examples)
 
             # sentences are not sorted by length
-            question, question_mask, _ = padding(questions, device, this.PAD)
-            passage, passage_mask, _ = padding(passages, device, this.PAD)
+            question, question_mask, _ = padding(questions, this.PAD)
+            passage, passage_mask, _ = padding(passages, this.PAD)
 
-            question_char, _, _ = padding_2d(questions_char, device, this.PAD)
-            passage_char, _, _ = padding_2d(passages_char, device, this.PAD)
+            question_char, _, _ = padding_2d(questions_char,this.PAD)
+            passage_char, _, _ = padding_2d(passages_char, this.PAD)
 
             if this.split == "train":
-                answers_positions = torch.Tensor(answers_positions, dtype=torch.int64)
+                answers_positions = torch.tensor(answers_positions, dtype=torch.int64)
                 return (question_ids,
-                        question, question_mask,
-                        passage, passage_mask,
-                        question_char, passage_char,
-                        answers_positions, answer_texts)
+                        question,question_char, question_mask,
+                        passage,passage_char, passage_mask,
+                        answers_positions)
 
             return (question_ids,
-                    question, question_mask,
-                    passage, passage_mask,
-                    question_char, passage_char,
+                    question, question_char, question_mask,
+                    passage, passage_char, passage_mask,
                     passage_tokenized)
 
         return partial(collate, this=self)

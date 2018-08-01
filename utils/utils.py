@@ -29,9 +29,9 @@ def get_args():
     parser.add_argument('--name', type=str, default="r-net")
     parser.add_argument('--device_id', type=int, default=0)
     parser.add_argument('--start_epoch', type=int, default=0)
-    parser.add_argument('--epoch_num', type=int, default=50)
-    parser.add_argument('--batch_size', type=int, default=48)
-    parser.add_argument('--batch_size_dev', type=int, default=64)
+    parser.add_argument('--epoch_num', type=int, default=10)
+    parser.add_argument('--batch_size', type=int, default=32)
+    parser.add_argument('--batch_size_dev', type=int, default=48)
     parser.add_argument('--debug', type=bool, default=False)
     parser.add_argument('--checkpoint_path', type=str, default="checkpoint")
     parser.add_argument('--resume', type=str, default=None)
@@ -47,8 +47,18 @@ def get_args():
     parser.add_argument('--num_layers', type=int, default=3)
     parser.add_argument('--app_path', type=str, default=dirname(dirname(abspath(__file__))))
     parser.add_argument('--pin_memory', type=bool, default=False)
+    parser.add_argument('--disable-cuda', action='store_true',
+                        help='Disable CUDA')
 
     args = parser.parse_args()
+
+    args.device = None
+
+    if not args.disable_cuda and torch.cuda.is_available():
+        args.device = torch.device('cuda:%d'%args.device_id)
+    else:
+        args.device = torch.device('cpu')
+
     return args
 
 
@@ -229,9 +239,10 @@ def maybe_download(url, download_path, filename):
             print("An error occurred when downloading the file! Please get the dataset using a browser.")
             raise e
 
+def simple_tokenize(sentence):
+    return sentence.split()
 
-def read_train_json(path, debug_mode, debug_len, delete_long_context=True, delete_long_question=True,
-                    longest_context=300, longest_question=50):
+def read_train_json(path, debug_mode, debug_len):
     with open(path) as fin:
         data = json.load(fin)
     examples = []
@@ -240,14 +251,10 @@ def read_train_json(path, debug_mode, debug_len, delete_long_context=True, delet
         for p in topic['paragraphs']:
             qas = p['qas']
             passage = p['context']
-            if delete_long_context and len(nltk.word_tokenize(passage)) > longest_context:
-                continue
+
             for qa in qas:
                 question = qa["question"]
                 answers = qa["answers"]
-
-                if delete_long_question and len(nltk.word_tokenize(question)) > longest_question:
-                    continue
 
                 question_id = qa["id"]
                 for ans in answers:
