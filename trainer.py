@@ -96,7 +96,6 @@ class Trainer(object):
             last_time = time.time()
 
             for batch_idx, batch_train in enumerate(self.dataloader_train):
-
                 loss, acc = self._forward(batch_train)
                 global_loss +=  loss.item()
                 global_acc += acc.item()

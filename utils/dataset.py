@@ -1,11 +1,11 @@
 from functools import partial
 
 import torch
-from torch.utils.data import DataLoader
-from torch.utils.data import Dataset
+from torch.utils import data
 
 from utils.utils import read_train_json, read_dev_json, tokenized_by_answer, set_tokenizer
 import progressbar
+import numpy as np
 
 def padding(seqs, pad_value=0, output_batch_first=True):
     """
@@ -50,7 +50,7 @@ def padding_2d(seqs,  pad_value=0):
             lengths[-1].append(len(w))
     return tensor, mask, lengths
 
-class SQuAD(Dataset):
+class SQuAD(data.Dataset):
     def __init__(self, path, itos, stoi, itoc, ctoi,
                  tokenizer="nltk", split="train",
                  debug_mode=False, debug_len=50):
@@ -91,9 +91,8 @@ class SQuAD(Dataset):
             example.numeralized_question_char = self._char_level_numeralize(example.tokenized_question)
             example.numeralized_passage_char = self._char_level_numeralize(example.tokenized_passage)
 
-        self.examples = [example for example in self.examples if len(example.tokenized_passage) <= 300]
-        if self.split != "train":
-            self.examples.sort(key=lambda example: len(example.numeralized_passage), reverse=True)
+        self.examples = [example for example in self.examples if len(example.tokenized_passage) <= 300 and len(example.tokenized_question)<=50]
+        self.examples.sort(key=lambda example: len(example.numeralized_passage), reverse=True)
 
     def _char_level_numeralize(self, tokenized_doc, insert_sos=False, insert_eos=False):
         result = [] if not insert_sos else [self.insert_start]
@@ -173,6 +172,37 @@ class SQuAD(Dataset):
         if not batch_first:
             raise NotImplementedError
 
-        return DataLoader(self, batch_size=batch_size, shuffle=shuffle,
+        sampler=None
+        if shuffle:
+            sampler = BucketSampler([len(e.numeralized_passage) for e in self.examples], batch_size)
+
+        return data.DataLoader(self, batch_size=batch_size, sampler=sampler,
                           collate_fn=self._create_collate_fn(batch_first, device),
                           num_workers=num_workers, pin_memory=pin_memory)
+
+
+
+class BucketSampler(data.Sampler):
+    def __init__(self, sorted_lengths, batch_size):
+        super().__init__(sorted_lengths)
+        self.lengths = np.array(sorted_lengths)
+        self.cache_size=batch_size * 100
+        self.batch_size=batch_size
+
+    def __iter__(self):
+        def iter():
+            indices = torch.randperm(len(self.lengths)).tolist()
+            for start in range(0, len(indices), self.cache_size):
+                cache = indices[start:start+self.cache_size]
+                cache.sort()
+                for batch_start in range(0, len(cache), self.batch_size):
+                    batch = cache[batch_start:batch_start+self.batch_size]
+                    for i in batch:
+                        yield i
+        return iter()
+
+
+    def __len__(self):
+        return len(self.lengths)
+
+

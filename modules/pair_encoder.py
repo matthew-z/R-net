@@ -54,6 +54,7 @@ class _PairEncodeCell(nn.Module):
         else:
             attention_input = input.unsqueeze(0).expand(memory_time_length, -1, -1)
 
+
         attention_logits = self.attention_w(torch.cat([attention_input, memory], dim=-1)).squeeze(-1)
         # import ipdb; ipdb.set_trace()
         attention_scores = F.softmax(

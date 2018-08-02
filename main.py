@@ -49,7 +49,7 @@ def main():
         "<end>": 3,
         "insert_start": "<SOS>",
         "insert_end": "<EOS>",
-        "tokenization": "spacy",
+        "tokenization": "sdf",
         "specials": ["<UNK>", "<PAD>", "<SOS>", "<EOS>"],
         "embedding_root": os.path.join(args.app_path, "data", "embedding", "word"),
         "embedding_type": "glove.840B",
