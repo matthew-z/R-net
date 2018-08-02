@@ -14,8 +14,9 @@ from torch.nn.utils.clip_grad import clip_grad_norm
 import models.r_net as RNet
 from utils.squad_eval import evaluate
 from utils.utils import make_dirs
-
-
+from torch import nn
+import numpy as np
+from torch.nn import functional as F
 def save_checkpoint(state, is_best, path, filename='checkpoint.pth.tar', best_filename='model_best.pth.tar'):
     checkpoint_regular = os.path.join(path, filename)
     checkpint_best = os.path.join(path, best_filename)
@@ -46,6 +47,7 @@ class Trainer(object):
         self.parameters_trainable = list(
             filter(lambda p: p.requires_grad, self.model.parameters()))
         self.optimizer = trainer_config["optimizer"](self.parameters_trainable, rho=0.95, lr=trainer_config["lr"])
+        # self.optimizer = torch.optim.Adam(self.parameters_trainable)
         self.scheduler = trainer_config["scheduler"](self.optimizer, "max",factor=trainer_config["factor"])
         self.grad_norm = trainer_config["grad_norm"]
         self.best_f1 = 0
@@ -53,6 +55,7 @@ class Trainer(object):
         self.start_epoch = args.start_epoch
         self.name = args.name
         self.start_time = datetime.datetime.now().strftime('%b-%d_%H-%M')
+        self.debug=args.debug
 
         if args.resume:
             if os.path.isfile(args.resume):
@@ -95,8 +98,8 @@ class Trainer(object):
             for batch_idx, batch_train in enumerate(self.dataloader_train):
 
                 loss, acc = self._forward(batch_train)
-                global_loss +=  loss.item
-                global_acc += acc.item
+                global_loss +=  loss.item()
+                global_acc += acc.item()
                 self._update_param(loss)
 
                 if self.step % 10 == 0:
@@ -119,48 +122,55 @@ class Trainer(object):
                     last_time = time.time()
                 self.step += 1
 
-            with torch.no_grad():
-                exact_match, f1 = self.eval()
+            if not self.debug:
+                with torch.no_grad():
+                    exact_match, f1 = self.eval()
 
-            print("exact_match: %f)" % exact_match, flush=True)
-            print("f1: %f)" % f1, flush=True)
-            log_value('dev/f1', f1, self.step)
-            log_value('dev/EM', exact_match, self.step)
+                print("exact_match: %f)" % exact_match, flush=True)
+                print("f1: %f)" % f1, flush=True)
+                log_value('dev/f1', f1, self.step)
+                log_value('dev/EM', exact_match, self.step)
 
-            if f1 > self.best_f1:
-                is_best = True
-                self.best_f1 = f1
-            else:
-                is_best = False
+                if f1 > self.best_f1:
+                    is_best = True
+                    self.best_f1 = f1
+                else:
+                    is_best = False
 
-            save_checkpoint({
-                'epoch': epoch + 1,
-                'state_dict': self.model.state_dict(),
-                'step': self.step + 1,
-                'best_f1': self.best_f1,
-                'name': self.name,
-                'optimizer': self.optimizer.state_dict(),
-                'start_time': self.start_time,
-                'scheduler':self.scheduler
-            }, is_best, self.checkpoint_path)
+                save_checkpoint({
+                    'epoch': epoch + 1,
+                    'state_dict': self.model.state_dict(),
+                    'step': self.step + 1,
+                    'best_f1': self.best_f1,
+                    'name': self.name,
+                    'optimizer': self.optimizer.state_dict(),
+                    'start_time': self.start_time,
+                    'scheduler':self.scheduler
+                }, is_best, self.checkpoint_path)
 
 
 
     def eval(self):
         self.model.eval()
         pred_result = {}
+
+
+
+
         for _, batch in enumerate(self.dataloader_dev):
 
             question_ids, question, question_char, question_mask, \
             passage, passage_char, passage_mask, passage_tokenized = batch
             begin_, end_ = self.model(question, question_char, question_mask, passage, passage_char, passage_mask)  # batch x seq
 
-            _, pred_begin = torch.max(begin_, 1)
-            _, pred_end = torch.max(end_, 1)
+            probability = torch.bmm(F.softmax(begin_, dim=-1).unsqueeze(2), F.softmax(end_, dim=-1).unsqueeze(1)).numpy()
+            mask = np.float32(np.fromfunction(lambda k, i, j: (i - j <= 15) & (i <= j), (1, probability.shape[1], probability.shape[2])))
 
-            pred = torch.stack([pred_begin, pred_end], dim=1)
+            probability = mask * probability
+            pred_begin = np.argmax(np.amax(probability, axis=2),axis=1)
+            pred_end = np.argmax(np.amax(probability, axis=1),axis=1)
 
-            for i, (begin, end) in enumerate(pred.cpu().data.numpy()):
+            for i, (begin, end) in enumerate(zip(pred_begin, pred_end)):
                 ans = passage_tokenized[i][begin:end + 1]
                 qid = question_ids[i]
                 pred_result[qid] = " ".join(ans)
@@ -188,7 +198,7 @@ class Trainer(object):
         _, pred_end = torch.max(end_, 1)
         exact_correct_num = torch.sum(
             (pred_begin == begin) * (pred_end == end))
-        em = exact_correct_num.data[0] / batch_num
+        em = exact_correct_num.float() / batch_num
 
         return loss, em
 
@@ -203,6 +213,5 @@ class Trainer(object):
         """
         Performs gradient rescaling. Is a no-op if gradient rescaling is not enabled.
         """
-        import ipdb; ipdb.set_trace()
         if self.grad_norm:
             clip_grad_norm(self.model.parameters(), self.grad_norm)

@@ -2,8 +2,10 @@ import torch
 from torch import nn
 
 from modules.attention import AttentionPooling
-from modules.pair_encoder import PairEncodeCell, bidirectional_unroll_cell, unroll_cell, SelfMatchCell
+from modules.pair_encoder import PairEncodeCell, bidirectional_unroll_attention_cell, unroll_attention_cell, \
+    SelfMatchCell
 from modules.recurrent import StackedCell
+from torch.nn import functional as F
 
 
 class _Encoder(nn.Module):
@@ -11,7 +13,7 @@ class _Encoder(nn.Module):
                  bidirectional, dropout, cell_factory):
         super().__init__()
 
-        cell_fn = lambda: cell_factory(input_size, cell=nn.GRUCell(input_size+memory_size, hidden_size),
+        cell_fn = lambda: cell_factory(input_size, cell=nn.GRUCell(input_size + memory_size, hidden_size),
                                        attention_size=attention_size, memory_size=memory_size)
 
         num_directions = 2 if bidirectional else 1
@@ -20,21 +22,20 @@ class _Encoder(nn.Module):
         self.cells = nn.ModuleList([cell_fn() for _ in range(num_directions)])
         self.dropout = nn.Dropout(dropout)
 
-    def forward(self, memory, memory_mask, input):
-
-        for cell in self.cells:
-            cell.feed_memory(memory, memory_mask)
+    def forward(self, memory, memory_mask, input, batch_first=False):
 
         if self.bidirectional:
             cell_fw, cell_bw = self.cells
-            output, _ = bidirectional_unroll_cell(cell_fw, cell_bw, input, batch_first=True)
+            output, _ = bidirectional_unroll_attention_cell(
+                cell_fw, cell_bw, input, memory, memory_mask,
+                batch_first=batch_first)
 
         else:
             cell, = self.cells
-            output, _ = unroll_cell(cell, input, batch_first=True)
+            output, _ = unroll_attention_cell(
+                cell, input, memory, memory_mask, batch_first=batch_first)
 
         return self.dropout(output)
-
 
 
 class PairEncoder(_Encoder):
@@ -158,7 +159,7 @@ class WordEmbedding(nn.Module):
 
 
 class SentenceEncoding(nn.Module):
-    def __init__(self, input_size, hidden_size, num_layers, bidirectional, dropout):
+    def __init__(self, input_size, hidden_size, num_layers, bidirectional, dropout, batch_first=False):
         super().__init__()
 
         self.question_encoder = nn.GRU(
@@ -166,14 +167,16 @@ class SentenceEncoding(nn.Module):
             hidden_size=hidden_size,
             num_layers=num_layers,
             bidirectional=bidirectional,
-            dropout=dropout)
+            dropout=dropout,
+            batch_first=batch_first)
 
         self.passage_encoder = nn.GRU(
             input_size,
             hidden_size=hidden_size,
             num_layers=num_layers,
             bidirectional=bidirectional,
-            dropout=dropout)
+            dropout=dropout,
+            batch_first=batch_first)
 
     def forward(self, question, passage):
         question_outputs, _ = self.question_encoder(question)
@@ -181,44 +184,75 @@ class SentenceEncoding(nn.Module):
         return question_outputs, passage_outputs
 
 
-class PointerNetwork(nn.Module):
-    def __init__(self, question_size, passage_size, attn_size=None,
-                 cell_type=nn.GRUCell, num_layers=1, dropout=0, residual=False, batch_first=True):
+def softmax_mask(logits, mask, INF=1e12, dim=None):
+    masked_logits = torch.where(mask, logits, torch.full_like(logits, -INF))
+    score = F.softmax(masked_logits, dim=dim)
+    return masked_logits, score
+
+
+class OutputLayer(nn.Module):
+    def __init__(self, question_size, passage_size, attention_size=75,
+                 cell_type=nn.GRUCell, dropout=0, batch_first=False):
         super().__init__()
-        self.num_layers = num_layers
-        if attn_size is None:
-            attn_size = question_size
+
 
         self.batch_first = batch_first
 
         # TODO: what is V_q? (section 3.4)
         v_q_size = question_size
-        self.question_pooling = AttentionPooling(question_size,
-                                                 v_q_size, attn_size=attn_size)
-        self.passage_pooling = AttentionPooling(passage_size,
-                                                question_size, attn_size=attn_size)
+
+        self.cell = cell_type(question_size, question_size)
+        self.dropout = dropout
+
+        self.passage_linear = nn.Sequential(
+            nn.Linear(question_size + passage_size, attention_size, bias=False),
+            nn.Dropout(dropout),
+            nn.Tanh(),
+            nn.Linear(attention_size, 1, bias=False),
+            nn.Dropout(dropout))
+
+        self.question_linear = nn.Sequential(
+            nn.Linear(question_size + v_q_size, attention_size, bias=False),
+            nn.Dropout(dropout),
+            nn.Tanh(),
+            nn.Linear(attention_size, 1, bias=False),
+            nn.Dropout(dropout),
+        )
 
         self.V_q = nn.Parameter(torch.randn(1, 1, v_q_size), requires_grad=True)
-        self.cell = StackedCell(question_size, question_size, num_layers=num_layers,
-                                dropout=dropout, rnn_cell=cell_type, residual=residual)
 
     def forward(self, question, question_mask, passage, passage_mask):
+        """
+        :param question: T B H
+        :param question_mask: T B
+        :param passage:
+        :param passage_mask:
+        :return:
+        """
+
         if self.batch_first:
             question = question.transpose(0, 1)
             question_mask = question_mask.transpose(0, 1)
             passage = passage.transpose(0, 1)
             passage_mask = passage_mask.transpose(0, 1)
 
-        hidden = self.question_pooling(question, self.V_q,
-                                       key_mask=question_mask, broadcast_key=True)  # 1 x batch x n
-        inputs, ans_begin = self.passage_pooling(passage, hidden,
-                                                 key_mask=passage_mask, return_key_scores=True)
-        hidden = hidden.expand([self.num_layers, hidden.size(1), hidden.size(2)])
+        state = self._question_pooling(question, question_mask)
+        cell_input, ans_start_logits = self._passage_attention(passage, passage_mask, state)
+        state = self.cell(cell_input, hx=state)
+        _, ans_end_logits = self._passage_attention(passage, passage_mask, state)
 
-        output, hidden = self.cell(inputs.squeeze(0), hidden)
-        _, ans_end = self.passage_pooling(passage, output.unsqueeze(0),
-                                          key_mask=passage_mask, return_key_scores=True)
+        return ans_start_logits.transpose(0, 1), ans_end_logits.transpose(0, 1)
 
-        ans_begin = ans_begin.transpose(0, 1)
-        ans_end = ans_end.transpose(0, 1)
-        return ans_begin, ans_end
+    def _question_pooling(self, question, question_mask):
+        V_q = self.V_q.expand(question.size(0), question.size(1), -1)
+        logits = self.question_linear(torch.cat([question, V_q], dim=-1)).squeeze(-1)
+        logits, score = softmax_mask(logits, question_mask, dim=0)
+        state = torch.sum(score.unsqueeze(-1) * question, dim=0)
+        return state
+
+    def _passage_attention(self, passage, passage_mask, state):
+        state_expand = state.unsqueeze(0).expand(passage.size(0), passage.size(1), -1)
+        logits = self.passage_linear(torch.cat([passage, state_expand], dim=-1)).squeeze(-1)
+        logits, score = softmax_mask(logits, passage_mask, dim=0)
+        cell_input = torch.sum(score.unsqueeze(-1) * passage, dim=0)
+        return cell_input, logits

@@ -16,12 +16,12 @@ def padding(seqs, pad_value=0, output_batch_first=True):
     seqs = [torch.Tensor(s) for s in seqs]
     batch_length = max(lengths)
     seq_tensor = torch.full([batch_length, len(seqs)], pad_value, dtype=torch.int64)
-    mask = torch.zeros(seq_tensor.size(),dtype=torch.int64)
+    mask = torch.zeros(seq_tensor.size(),dtype=torch.uint8)
 
     for i, s in enumerate(seqs):
         end_seq = lengths[i]
         seq_tensor[:end_seq, i].copy_(s[:end_seq])
-        mask[:end_seq, i].fill_(1)
+        mask[:end_seq, i].fill_(1.)
     if output_batch_first:
         seq_tensor = seq_tensor.t()
         mask = mask.t()
@@ -41,7 +41,7 @@ def padding_2d(seqs,  pad_value=0):
             word_length = max(word_length, len(word))
 
     tensor = torch.full([len(seqs), sentence_length, word_length], pad_value,  dtype=torch.int64)
-    mask = torch.zeros(tensor.size(),dtype=torch.int64)
+    mask = torch.zeros(tensor.size(),dtype=torch.uint8)
     for i, s in enumerate(seqs):
         lengths.append([])
         for j, w in enumerate(s):
