@@ -1,10 +1,8 @@
 import torch
 from torch import nn
 
-from modules.attention import AttentionPooling
-from modules.pair_encoder import PairEncodeCell, bidirectional_unroll_attention_cell, unroll_attention_cell, \
-    SelfMatchCell
-from modules.recurrent import StackedCell
+from modules import attention
+from modules.pair_encoder import PairEncodeCell, bidirectional_unroll_attention_cell, unroll_attention_cell
 from torch.nn import functional as F
 
 
@@ -45,11 +43,28 @@ class PairEncoder(_Encoder):
                          bidirectional, dropout, PairEncodeCell)
 
 
-class SelfMatchEncoder(_Encoder):
+class SelfMatchEncoder(nn.Module):
     def __init__(self, memory_size, input_size, hidden_size, attention_size,
-                 bidirectional, dropout):
-        super().__init__(memory_size, input_size, hidden_size, attention_size,
-                         bidirectional, dropout, SelfMatchCell)
+                 bidirectional, dropout, attention_factory=attention.StaticDotAttention):
+        super().__init__()
+        self.attention = attention_factory(memory_size, input_size, attention_size, dropout=dropout)
+        self.gate = nn.Sequential(
+            nn.Linear(input_size + memory_size, input_size + memory_size, bias=False),
+            nn.Sigmoid())
+        self.rnn = nn.GRU(input_size=(input_size), hidden_size=hidden_size,
+                          bidirectional=bidirectional, dropout=dropout)
+
+    def forward(self, input, memory, memory_mask):
+        """
+        Memory: T B H
+        input: T B H
+        """
+
+        new_input = self.attention(input, memory, memory_mask)
+        new_input = self.gate(new_input)
+        output, _ = self.rnn(new_input)
+
+        return output
 
 
 class Max(nn.Module):
@@ -194,7 +209,6 @@ class OutputLayer(nn.Module):
     def __init__(self, question_size, passage_size, attention_size=75,
                  cell_type=nn.GRUCell, dropout=0, batch_first=False):
         super().__init__()
-
 
         self.batch_first = batch_first
 

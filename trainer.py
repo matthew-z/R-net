@@ -101,12 +101,12 @@ class Trainer(object):
                 global_acc += acc.item()
                 self._update_param(loss)
 
-                if self.step % 10 == 0:
+                if self.step % 100 == 0:
                     used_time = time.time() - last_time
                     step_num = self.step - last_step
                     print("step %d / %d of epoch %d)" % (batch_idx, len(self.dataloader_train), epoch), flush=True)
-                    print("loss: ", global_loss / step_num, flush=True)
-                    print("acc: ", global_acc / step_num, flush=True)
+                    print("loss: %.3f"%(global_loss / step_num), flush=True)
+                    print("acc: %.3f" % (global_acc / step_num * 100), flush=True)
                     speed = self.dataloader_train.batch_size * step_num / used_time
                     print("speed: %f examples/sec \n\n" %
                           (speed), flush=True)
@@ -161,8 +161,7 @@ class Trainer(object):
             question_ids, question, question_char, question_mask, \
             passage, passage_char, passage_mask, passage_tokenized = batch
             begin_, end_ = self.model(question, question_char, question_mask, passage, passage_char, passage_mask)  # batch x seq
-
-            probability = torch.bmm(F.softmax(begin_, dim=-1).unsqueeze(2), F.softmax(end_, dim=-1).unsqueeze(1)).numpy()
+            probability = torch.bmm(F.softmax(begin_, dim=-1).unsqueeze(2), F.softmax(end_, dim=-1).unsqueeze(1)).cpu().numpy()
             mask = np.float32(np.fromfunction(lambda k, i, j: (i - j <= 15) & (i <= j), (1, probability.shape[1], probability.shape[2])))
 
             probability = mask * probability

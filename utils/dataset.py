@@ -91,7 +91,8 @@ class SQuAD(data.Dataset):
             example.numeralized_question_char = self._char_level_numeralize(example.tokenized_question)
             example.numeralized_passage_char = self._char_level_numeralize(example.tokenized_passage)
 
-        self.examples = [example for example in self.examples if len(example.tokenized_passage) <= 300 and len(example.tokenized_question)<=50]
+        self.examples = [example for example in self.examples
+                         if len(example.tokenized_passage) <= 300 and len(example.tokenized_question)<=50]
         self.examples.sort(key=lambda example: len(example.numeralized_passage), reverse=True)
 
     def _char_level_numeralize(self, tokenized_doc, insert_sos=False, insert_eos=False):
