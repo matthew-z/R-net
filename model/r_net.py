@@ -1,6 +1,6 @@
 import torch
 from torch import nn
-from models.submodules import PairEncoder, SelfMatchEncoderMul, CharLevelWordEmbeddingCnn, WordEmbedding, \
+from model.modules import PairEncoder, SelfMatchEncoder, CharLevelWordEmbeddingCNN, WordEmbedding, \
     SentenceEncoding, OutputLayer
 
 
@@ -108,7 +108,7 @@ class _RNet(nn.Module):
         pair_encoding_num_direction = (2 if pair_encoding_config["bidirectional"] else 1)
         pair_encoding_size = pair_encoding_config["hidden_size"] * pair_encoding_num_direction
 
-        self.self_match_encoder = SelfMatchEncoderMul(
+        self.self_match_encoder = SelfMatchEncoder(
             memory_size=sentence_encoding_size,
             input_size=pair_encoding_size,
             hidden_size=self_matching_config["hidden_size"],

@@ -5,7 +5,7 @@ from torch.utils import data
 
 from utils.utils import read_train_json, read_dev_json, tokenized_by_answer, set_tokenizer
 import progressbar
-import numpy as np
+
 
 def padding(seqs, pad_value=0, output_batch_first=True):
     """
@@ -16,7 +16,7 @@ def padding(seqs, pad_value=0, output_batch_first=True):
     seqs = [torch.Tensor(s) for s in seqs]
     batch_length = max(lengths)
     seq_tensor = torch.full([batch_length, len(seqs)], pad_value, dtype=torch.int64)
-    mask = torch.zeros(seq_tensor.size(),dtype=torch.uint8)
+    mask = torch.zeros(seq_tensor.size(), dtype=torch.uint8)
 
     for i, s in enumerate(seqs):
         end_seq = lengths[i]
@@ -28,7 +28,7 @@ def padding(seqs, pad_value=0, output_batch_first=True):
     return (seq_tensor, mask, lengths)
 
 
-def padding_2d(seqs,  pad_value=0):
+def padding_2d(seqs, pad_value=0):
     """
     :param seqs:  sequence of sentences, each word is a list of chars
     """
@@ -40,8 +40,8 @@ def padding_2d(seqs,  pad_value=0):
         for word in seq:
             word_length = max(word_length, len(word))
 
-    tensor = torch.full([len(seqs), sentence_length, word_length], pad_value,  dtype=torch.int64)
-    mask = torch.zeros(tensor.size(),dtype=torch.uint8)
+    tensor = torch.full([len(seqs), sentence_length, word_length], pad_value, dtype=torch.int64)
+    mask = torch.zeros(tensor.size(), dtype=torch.uint8)
     for i, s in enumerate(seqs):
         lengths.append([])
         for j, w in enumerate(s):
@@ -49,6 +49,7 @@ def padding_2d(seqs,  pad_value=0):
             mask[i, j, :len(w)].fill_(1)
             lengths[-1].append(len(w))
     return tensor, mask, lengths
+
 
 class SQuAD(data.Dataset):
     def __init__(self, path, itos, stoi, itoc, ctoi,
@@ -92,7 +93,7 @@ class SQuAD(data.Dataset):
             example.numeralized_passage_char = self._char_level_numeralize(example.tokenized_passage)
 
         self.examples = [example for example in self.examples
-                         if len(example.tokenized_passage) <= 300 and len(example.tokenized_question)<=50]
+                         if len(example.tokenized_passage) <= 300 and len(example.tokenized_question) <= 50]
         self.examples.sort(key=lambda example: len(example.numeralized_passage), reverse=True)
 
     def _char_level_numeralize(self, tokenized_doc, insert_sos=False, insert_eos=False):
@@ -148,14 +149,14 @@ class SQuAD(data.Dataset):
             question, question_mask, _ = padding(questions, this.PAD)
             passage, passage_mask, _ = padding(passages, this.PAD)
 
-            question_char, _, _ = padding_2d(questions_char,this.PAD)
+            question_char, _, _ = padding_2d(questions_char, this.PAD)
             passage_char, _, _ = padding_2d(passages_char, this.PAD)
 
             if this.split == "train":
                 answers_positions = torch.tensor(answers_positions, dtype=torch.int64)
                 return (question_ids,
-                        question,question_char, question_mask,
-                        passage,passage_char, passage_mask,
+                        question, question_char, question_mask,
+                        passage, passage_char, passage_mask,
                         answers_positions)
 
             return (question_ids,
@@ -173,37 +174,34 @@ class SQuAD(data.Dataset):
         if not batch_first:
             raise NotImplementedError
 
-        sampler=None
+        sampler = None
         if shuffle:
             sampler = BucketSampler([len(e.numeralized_passage) for e in self.examples], batch_size)
 
         return data.DataLoader(self, batch_size=batch_size, sampler=sampler,
-                          collate_fn=self._create_collate_fn(batch_first, device),
-                          num_workers=num_workers, pin_memory=pin_memory)
-
+                               collate_fn=self._create_collate_fn(batch_first, device),
+                               num_workers=num_workers, pin_memory=pin_memory)
 
 
 class BucketSampler(data.Sampler):
     def __init__(self, sorted_lengths, batch_size):
         super().__init__(sorted_lengths)
-        self.lengths = np.array(sorted_lengths)
-        self.cache_size=batch_size * 100
-        self.batch_size=batch_size
+        self.lengths = sorted_lengths
+        self.cache_size = batch_size * 40
+        self.batch_size = batch_size
 
     def __iter__(self):
         def iter():
             indices = torch.randperm(len(self.lengths)).tolist()
             for start in range(0, len(indices), self.cache_size):
-                cache = indices[start:start+self.cache_size]
+                cache = indices[start:start + self.cache_size]
                 cache.sort()
                 for batch_start in range(0, len(cache), self.batch_size):
-                    batch = cache[batch_start:batch_start+self.batch_size]
+                    batch = cache[batch_start:batch_start + self.batch_size]
                     for i in batch:
                         yield i
-        return iter()
 
+        return iter()
 
     def __len__(self):
         return len(self.lengths)
-
-

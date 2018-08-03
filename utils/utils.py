@@ -407,7 +407,7 @@ def prepare_data():
     make_dirs("data/trained_model")
     make_dirs("checkpoint")
 
-    nltk.download("punkt")
+    nltk.download("punkt", quiet=True)
 
     train_filename = "train-v1.1.json"
     dev_filename = "dev-v1.1.json"

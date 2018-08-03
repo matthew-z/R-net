@@ -11,7 +11,7 @@ from torch import optim
 from torch.autograd import Variable
 import torch.optim.lr_scheduler
 from torch.nn.utils.clip_grad import clip_grad_norm
-import models.r_net as RNet
+import model.r_net as RNet
 from utils.squad_eval import evaluate
 from utils.utils import make_dirs
 from torch import nn

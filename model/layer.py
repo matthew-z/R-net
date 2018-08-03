@@ -1,6 +1,34 @@
-from torch import nn
 import torch
+from torch import nn
 from torch.nn import functional as F
+
+
+def softmax_mask(logits, mask, INF=1e12, dim=None):
+    masked_logits = torch.where(mask, logits, torch.full_like(logits, -INF))
+    score = F.softmax(masked_logits, dim=dim)
+    return masked_logits, score
+
+
+class Max(nn.Module):
+    def __init__(self, dim):
+        super().__init__()
+        self.dim = dim
+
+    def forward(self, input):
+        max_result, _ = input.max(dim=self.dim)
+        return max_result
+
+
+class Gate(nn.Module):
+    def __init__(self, input_size):
+        super().__init__()
+        self.gate = nn.Sequential(
+            nn.Linear(input_size, input_size, bias=False),
+            nn.Sigmoid()
+        )
+
+    def forward(self, input):
+        return input * self.gate(input)
 
 
 class _PairEncodeCell(nn.Module):
@@ -25,8 +53,7 @@ class _PairEncodeCell(nn.Module):
             nn.Dropout(attention_dropout),
         )
 
-        self.gate = nn.Sequential(nn.Linear(input_size + memory_size, input_size + memory_size, bias=False),
-                                  nn.Sigmoid())
+        self.gate = Gate(input_size + memory_size)
 
     def forward(self, input, memory=None, memory_mask=None, state=None):
         """
@@ -38,7 +65,8 @@ class _PairEncodeCell(nn.Module):
         :return:
         """
 
-        assert input.size(0) == memory.size(1) == memory_mask.size(1), "input batch size does not match memory batch size"
+        assert input.size(0) == memory.size(1) == memory_mask.size(
+            1), "input batch size does not match memory batch size"
 
         memory_time_length = memory.size(0)
 
@@ -54,7 +82,6 @@ class _PairEncodeCell(nn.Module):
         else:
             attention_input = input.unsqueeze(0).expand(memory_time_length, -1, -1)
 
-
         attention_logits = self.attention_w(torch.cat([attention_input, memory], dim=-1)).squeeze(-1)
         # import ipdb; ipdb.set_trace()
         attention_scores = F.softmax(
@@ -62,7 +89,7 @@ class _PairEncodeCell(nn.Module):
         attention_vector = torch.sum(attention_scores.unsqueeze(-1) * memory, dim=0)
 
         new_input = torch.cat([input, attention_vector], dim=-1)
-        new_input = self.gate(new_input) * new_input
+        new_input = self.gate(new_input)
 
         return self.cell(new_input, state)
 
@@ -112,13 +139,3 @@ def bidirectional_unroll_attention_cell(cell_fw, cell_bw, input, memory, memory_
         initial_state=initial_state[1])
 
     return torch.cat([output_fw, output_bw], dim=-1), (state_fw, state_bw)
-
-
-if __name__ == "__main__":
-    x = torch.rand(25, 32, 50)
-    memory = torch.rand(15, 32, 50)
-    memory_mask = torch.rand(15, 32, 1)
-
-    decoder_cell = PairEncodeCell(50, nn.GRUCell(100, 50), 75)
-    output, state = unroll_attention_cell(decoder_cell, x, memory, memory_mask)
-    print(output.shape)
