@@ -1,3 +1,4 @@
+import random
 from functools import partial
 
 import torch
@@ -52,7 +53,7 @@ def padding_2d(seqs, pad_value=0):
 
 
 class SQuAD(data.Dataset):
-    def __init__(self, path, itos, stoi, itoc, ctoi,
+    def __init__(self, path,  stoi, ctoi,
                  tokenizer="nltk", split="train",
                  debug_mode=False, debug_len=50):
         """ Build a dataset to fetch batch"""
@@ -63,8 +64,6 @@ class SQuAD(data.Dataset):
         self.PAD = stoi.get("<PAD>", None)
         self.stoi = stoi
         self.ctoi = ctoi
-        self.itos = itos
-        self.itoc = itoc
         self.split = split
         tokenizer = set_tokenizer(tokenizer)
 
@@ -92,9 +91,10 @@ class SQuAD(data.Dataset):
             example.numeralized_question_char = self._char_level_numeralize(example.tokenized_question)
             example.numeralized_passage_char = self._char_level_numeralize(example.tokenized_passage)
 
-        self.examples = [example for example in self.examples
-                         if len(example.tokenized_passage) <= 300 and len(example.tokenized_question) <= 50]
-        self.examples.sort(key=lambda example: len(example.numeralized_passage), reverse=True)
+        if self.split == "train":
+            self.examples = [example for example in self.examples
+                             if len(example.tokenized_passage) <= 300 and len(example.tokenized_question) <= 50]
+        self.examples.sort(key=lambda example: (len(example.numeralized_passage), len(example.numeralized_question)), reverse=True)
 
     def _char_level_numeralize(self, tokenized_doc, insert_sos=False, insert_eos=False):
         result = [] if not insert_sos else [self.insert_start]
@@ -187,7 +187,7 @@ class BucketSampler(data.Sampler):
     def __init__(self, sorted_lengths, batch_size):
         super().__init__(sorted_lengths)
         self.lengths = sorted_lengths
-        self.cache_size = batch_size * 40
+        self.cache_size = batch_size * 50
         self.batch_size = batch_size
 
     def __iter__(self):
@@ -196,11 +196,12 @@ class BucketSampler(data.Sampler):
             for start in range(0, len(indices), self.cache_size):
                 cache = indices[start:start + self.cache_size]
                 cache.sort()
-                for batch_start in range(0, len(cache), self.batch_size):
+                starts = list(range(0, len(cache), self.batch_size))
+                random.shuffle(starts)
+                for batch_start in starts:
                     batch = cache[batch_start:batch_start + self.batch_size]
                     for i in batch:
                         yield i
-
         return iter()
 
     def __len__(self):

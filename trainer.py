@@ -17,13 +17,16 @@ from utils.utils import make_dirs
 from torch import nn
 import numpy as np
 from torch.nn import functional as F
+
+
 def save_checkpoint(state, is_best, path, filename='checkpoint.pth.tar', best_filename='model_best.pth.tar'):
     checkpoint_regular = os.path.join(path, filename)
     checkpint_best = os.path.join(path, best_filename)
     torch.save(state, checkpoint_regular)
+    print("saved checkpoint to %s"%checkpoint_regular)
     if is_best:
         shutil.copyfile(checkpoint_regular, checkpint_best)
-
+        print("saved current best model to %s" % checkpoint_regular)
 
 class Trainer(object):
     def __init__(self, args, dataloader_train, dataloader_dev, char_embedding_config, word_embedding_config,
@@ -101,7 +104,7 @@ class Trainer(object):
                 global_acc += acc.item()
                 self._update_param(loss)
 
-                if self.step % 100 == 0:
+                if self.step % 50 == 0:
                     used_time = time.time() - last_time
                     step_num = self.step - last_step
                     print("step %d / %d of epoch %d)" % (batch_idx, len(self.dataloader_train), epoch), flush=True)
@@ -152,9 +155,6 @@ class Trainer(object):
     def eval(self):
         self.model.eval()
         pred_result = {}
-
-
-
 
         for _, batch in enumerate(self.dataloader_dev):
 

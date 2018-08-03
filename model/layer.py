@@ -47,10 +47,10 @@ class _PairEncodeCell(nn.Module):
 
         self.attention_w = nn.Sequential(
             nn.Linear(attention_input_size, attention_size, bias=False),
-            nn.Dropout(attention_dropout),
+            # nn.Dropout(attention_dropout),
             nn.Tanh(),
             nn.Linear(attention_size, 1, bias=False),
-            nn.Dropout(attention_dropout),
+            # nn.Dropout(attention_dropout),
         )
 
         self.gate = Gate(input_size + memory_size)

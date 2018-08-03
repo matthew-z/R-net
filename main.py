@@ -8,6 +8,7 @@ from utils.utils import prepare_data, get_args, read_embedding
 import torch.optim.lr_scheduler
 from torch.nn.utils.clip_grad import clip_grad_norm
 
+
 # TODO: read vocab into a cpu embedding layer
 def read_vocab(vocab_config):
     """
@@ -67,16 +68,16 @@ def main():
     itoc, ctoi, cv_vec = read_vocab(char_vocab_config)
 
     char_embedding_config = {
-                            "char_embedding_size": 16,
-                            "char_num":cv_vec.size(0),
-                            "embedding_weights": cv_vec,
-                            "num_filters":100,
-                            "ngram_filter_sizes":[2, 4, 5],
-                            "activation":torch.nn.ReLU,
-                             "padding_idx": word_vocab_config["<PAD>"],
-                             "update": args.update_char_embedding,
-                             "bidirectional": args.bidirectional,
-                             "cell_type": "gru", "output_dim": None}
+        "char_embedding_size": 16,
+        "char_num": cv_vec.size(0),
+        "embedding_weights": cv_vec,
+        "num_filters": 100,
+        "ngram_filter_sizes": [2, 4, 5],
+        "activation": torch.nn.ReLU,
+        "padding_idx": word_vocab_config["<PAD>"],
+        "update": args.update_char_embedding,
+        "bidirectional": args.bidirectional,
+        "cell_type": "gru", "output_dim": None}
 
     word_embedding_config = {"embedding_weights": wv_vec,
                              "padding_idx": word_vocab_config["<PAD>"],
@@ -106,13 +107,12 @@ def main():
                       "rnn_cell": torch.nn.GRUCell}
 
     trainer_config = {
-        "lr":1,
-        "optimizer":torch.optim.Adadelta,
-        "scheduler":torch.optim.lr_scheduler.ReduceLROnPlateau,
-        "factor":0.5,
-        "grad_norm":5
+        "lr": 1,
+        "optimizer": torch.optim.Adadelta,
+        "scheduler": torch.optim.lr_scheduler.ReduceLROnPlateau,
+        "factor": 0.5,
+        "grad_norm": 5
     }
-
 
     print("DEBUG Mode is ", "On" if args.debug else "Off", flush=True)
     train_cache = "./data/cache/SQuAD%s.pkl" % ("_debug" if args.debug else "")
@@ -121,10 +121,10 @@ def main():
     train_json = args.train_json
     dev_json = args.dev_json
 
-    train = read_dataset(train_json, itos, stoi, itoc, ctoi, train_cache, args.debug)
-    dev = read_dataset(dev_json, itos, stoi, itoc, ctoi, dev_cache, args.debug, split="dev")
+    train = read_dataset(train_json, stoi, ctoi, train_cache, args.debug)
+    dev = read_dataset(dev_json, stoi, ctoi, dev_cache, args.debug, split="dev")
 
-    dev_dataloader = dev.get_dataloader(args.batch_size_dev)
+    dev_dataloader = dev.get_dataloader(args.batch_size_dev, shuffle=False)
     train_dataloader = train.get_dataloader(args.batch_size, shuffle=True)
 
     trainer = Trainer(args, train_dataloader, dev_dataloader,
@@ -134,7 +134,7 @@ def main():
     trainer.train(args.epoch_num)
 
 
-def read_dataset(json_file, itos, stoi, itoc, ctoi, cache_file, is_debug=False, split="train"):
+def read_dataset(json_file, stoi, ctoi, cache_file, is_debug=False, split="train"):
     if os.path.isfile(cache_file):
         print("Read built %s dataset from %s" % (split, cache_file), flush=True)
         dataset = pickle.load(open(cache_file, "rb"))
@@ -143,7 +143,7 @@ def read_dataset(json_file, itos, stoi, itoc, ctoi, cache_file, is_debug=False, 
     else:
         print("building %s dataset" % split, flush=True)
         from utils.dataset import SQuAD
-        dataset = SQuAD(json_file, itos, stoi, itoc, ctoi, debug_mode=is_debug, split=split)
+        dataset = SQuAD(json_file,  stoi, ctoi, debug_mode=is_debug, split=split)
         pickle.dump(dataset, open(cache_file, "wb"))
     return dataset
 

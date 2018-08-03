@@ -191,17 +191,18 @@ class OutputLayer(nn.Module):
 
         self.passage_linear = nn.Sequential(
             nn.Linear(question_size + passage_size, attention_size, bias=False),
-            nn.Dropout(dropout),
+            # nn.Dropout(dropout),
             nn.Tanh(),
             nn.Linear(attention_size, 1, bias=False),
-            nn.Dropout(dropout))
+            # nn.Dropout(dropout)
+        )
 
         self.question_linear = nn.Sequential(
             nn.Linear(question_size + v_q_size, attention_size, bias=False),
-            nn.Dropout(dropout),
+            # nn.Dropout(dropout),
             nn.Tanh(),
             nn.Linear(attention_size, 1, bias=False),
-            nn.Dropout(dropout),
+            # nn.Dropout(dropout),
         )
 
         self.V_q = nn.Parameter(torch.randn(1, 1, v_q_size), requires_grad=True)
@@ -236,7 +237,7 @@ class OutputLayer(nn.Module):
         return state
 
     def _passage_attention(self, passage, passage_mask, state):
-        state_expand = state.unsqueeze(0).expand(passage.size(0), passage.size(1), -1)
+        state_expand = state.unsqueeze(0).expand(passage.size(0), -1, -1)
         logits = self.passage_linear(torch.cat([passage, state_expand], dim=-1)).squeeze(-1)
         logits, score = layer.softmax_mask(logits, passage_mask, dim=0)
         cell_input = torch.sum(score.unsqueeze(-1) * passage, dim=0)
