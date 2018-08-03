@@ -96,6 +96,7 @@ class _RNet(nn.Module):
 
         sentence_encoding_direction = (2 if sentence_encoding_config["bidirectional"] else 1)
         sentence_encoding_size = (sentence_encoding_config["hidden_size"] * sentence_encoding_direction)
+
         self.pair_encoder = PairEncoder(
             memory_size=sentence_encoding_size,
             input_size=sentence_encoding_size,
@@ -124,10 +125,10 @@ class _RNet(nn.Module):
             passage_size=passage_size,
             dropout=pointer_config["dropout"],
             cell_type=pointer_config["rnn_cell"], batch_first=False)
-
-        for weight in self.parameters():
-            if weight.ndimension() >= 2:
-                nn.init.orthogonal_(weight)
+        #
+        # for weight in self.parameters():
+        #     if weight.ndimension() >= 2:
+        #         nn.init.orthogonal_(weight)
 
     def forward(self, question, question_mask,
                 passage, passage_mask):

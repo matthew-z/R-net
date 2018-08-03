@@ -23,10 +23,11 @@ def save_checkpoint(state, is_best, path, filename='checkpoint.pth.tar', best_fi
     checkpoint_regular = os.path.join(path, filename)
     checkpint_best = os.path.join(path, best_filename)
     torch.save(state, checkpoint_regular)
-    print("saved checkpoint to %s"%checkpoint_regular)
+    print("saved checkpoint to %s" % checkpoint_regular)
     if is_best:
         shutil.copyfile(checkpoint_regular, checkpint_best)
         print("saved current best model to %s" % checkpoint_regular)
+
 
 class Trainer(object):
     def __init__(self, args, dataloader_train, dataloader_dev, char_embedding_config, word_embedding_config,
@@ -45,20 +46,24 @@ class Trainer(object):
         self.dataloader_train = dataloader_train
         self.dataloader_dev = dataloader_dev
 
-        self.model = RNet.RNet(args, char_embedding_config, word_embedding_config, sentence_encoding_config,
-                               pair_encoding_config, self_matching_config, pointer_config)
+        self.model = RNet.RNet(args, char_embedding_config, word_embedding_config,
+                               sentence_encoding_config, pair_encoding_config,
+                               self_matching_config, pointer_config)
         self.parameters_trainable = list(
             filter(lambda p: p.requires_grad, self.model.parameters()))
         self.optimizer = trainer_config["optimizer"](self.parameters_trainable, rho=0.95, lr=trainer_config["lr"])
         # self.optimizer = torch.optim.Adam(self.parameters_trainable)
-        self.scheduler = trainer_config["scheduler"](self.optimizer, "max",factor=trainer_config["factor"])
+        self.scheduler = trainer_config["scheduler"](
+            self.optimizer, "max",
+            factor=trainer_config["factor"],
+            patience=trainer_config["patience"])
         self.grad_norm = trainer_config["grad_norm"]
         self.best_f1 = 0
         self.step = 0
         self.start_epoch = args.start_epoch
         self.name = args.name
         self.start_time = datetime.datetime.now().strftime('%b-%d_%H-%M')
-        self.debug=args.debug
+        self.debug = args.debug
 
         if args.resume:
             if os.path.isfile(args.resume):
@@ -100,7 +105,7 @@ class Trainer(object):
 
             for batch_idx, batch_train in enumerate(self.dataloader_train):
                 loss, acc = self._forward(batch_train)
-                global_loss +=  loss.item()
+                global_loss += loss.item()
                 global_acc += acc.item()
                 self._update_param(loss)
 
@@ -108,7 +113,7 @@ class Trainer(object):
                     used_time = time.time() - last_time
                     step_num = self.step - last_step
                     print("step %d / %d of epoch %d)" % (batch_idx, len(self.dataloader_train), epoch), flush=True)
-                    print("loss: %.3f"%(global_loss / step_num), flush=True)
+                    print("loss: %.3f" % (global_loss / step_num), flush=True)
                     print("acc: %.3f" % (global_acc / step_num * 100), flush=True)
                     speed = self.dataloader_train.batch_size * step_num / used_time
                     print("speed: %f examples/sec \n\n" %
@@ -147,10 +152,8 @@ class Trainer(object):
                     'name': self.name,
                     'optimizer': self.optimizer.state_dict(),
                     'start_time': self.start_time,
-                    'scheduler':self.scheduler
+                    'scheduler': self.scheduler
                 }, is_best, self.checkpoint_path)
-
-
 
     def eval(self):
         self.model.eval()
@@ -160,20 +163,23 @@ class Trainer(object):
 
             question_ids, question, question_char, question_mask, \
             passage, passage_char, passage_mask, passage_tokenized = batch
-            begin_, end_ = self.model(question, question_char, question_mask, passage, passage_char, passage_mask)  # batch x seq
-            probability = torch.bmm(F.softmax(begin_, dim=-1).unsqueeze(2), F.softmax(end_, dim=-1).unsqueeze(1)).cpu().numpy()
-            mask = np.float32(np.fromfunction(lambda k, i, j: (i - j <= 15) & (i <= j), (1, probability.shape[1], probability.shape[2])))
+            begin_, end_ = self.model(question, question_char, question_mask, passage, passage_char,
+                                      passage_mask)  # batch x seq
+            probability = torch.bmm(F.softmax(begin_, dim=-1).unsqueeze(2),
+                                    F.softmax(end_, dim=-1).unsqueeze(1)).cpu().numpy()
+            mask = np.float32(np.fromfunction(lambda k, i, j: (i - j <= 15) & (i <= j),
+                                              (1, probability.shape[1], probability.shape[2])))
 
             probability = mask * probability
-            pred_begin = np.argmax(np.amax(probability, axis=2),axis=1)
-            pred_end = np.argmax(np.amax(probability, axis=1),axis=1)
+            pred_begin = np.argmax(np.amax(probability, axis=2), axis=1)
+            pred_end = np.argmax(np.amax(probability, axis=1), axis=1)
 
             for i, (begin, end) in enumerate(zip(pred_begin, pred_end)):
                 ans = passage_tokenized[i][begin:end + 1]
                 qid = question_ids[i]
                 pred_result[qid] = " ".join(ans)
         self.model.train()
-        em, f1 =  evaluate(self.dev_dataset, pred_result)
+        em, f1 = evaluate(self.dev_dataset, pred_result)
         self.scheduler.step(em)
         return em, f1
 
@@ -183,7 +189,8 @@ class Trainer(object):
 
         batch_num = question.size(0)
 
-        begin_, end_ = self.model(question, question_char, question_mask, passage, passage_char, passage_mask)  # batch x seq
+        begin_, end_ = self.model(question, question_char, question_mask, passage, passage_char,
+                                  passage_mask)  # batch x seq
 
         assert begin_.size(0) == batch_num
         if torch.cuda.is_available():
@@ -205,7 +212,6 @@ class Trainer(object):
         loss.backward()
         self._rescale_gradients()
         self.optimizer.step()
-
 
     def _rescale_gradients(self) -> None:
         """

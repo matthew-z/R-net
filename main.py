@@ -111,6 +111,7 @@ def main():
         "optimizer": torch.optim.Adadelta,
         "scheduler": torch.optim.lr_scheduler.ReduceLROnPlateau,
         "factor": 0.5,
+        "patience": 2,
         "grad_norm": 5
     }
 
