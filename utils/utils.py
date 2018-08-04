@@ -29,7 +29,7 @@ def get_args():
     parser.add_argument('--name', type=str, default="r-net")
     parser.add_argument('--device_id', type=int, default=0)
     parser.add_argument('--start_epoch', type=int, default=0)
-    parser.add_argument('--epoch_num', type=int, default=20)
+    parser.add_argument('--epoch_num', type=int, default=50)
     parser.add_argument('--batch_size', type=int, default=50)
     parser.add_argument('--batch_size_dev', type=int, default=100)
     parser.add_argument('--debug', type=bool, default=False)

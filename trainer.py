@@ -6,17 +6,14 @@ import sys
 import time
 
 import torch
-from tensorboard_logger import configure, log_value
-from torch import optim
-from torch.autograd import Variable
 import torch.optim.lr_scheduler
 from torch.nn.utils.clip_grad import clip_grad_norm
 import model.r_net as RNet
 from utils.squad_eval import evaluate
 from utils.utils import make_dirs
-from torch import nn
 import numpy as np
 from torch.nn import functional as F
+from tensorboardX import SummaryWriter
 
 
 def save_checkpoint(state, is_best, path, filename='checkpoint.pth.tar', best_filename='model_best.pth.tar'):
@@ -49,10 +46,15 @@ class Trainer(object):
         self.model = RNet.RNet(args, char_embedding_config, word_embedding_config,
                                sentence_encoding_config, pair_encoding_config,
                                self_matching_config, pointer_config)
+        # use which device
+        if torch.cuda.is_available():
+            self.model = self.model.cuda(args.device_id)
+        else:
+            self.model = self.model.cpu()
+
         self.parameters_trainable = list(
             filter(lambda p: p.requires_grad, self.model.parameters()))
         self.optimizer = trainer_config["optimizer"](self.parameters_trainable, rho=0.95, lr=trainer_config["lr"])
-        # self.optimizer = torch.optim.Adam(self.parameters_trainable)
         self.scheduler = trainer_config["scheduler"](
             self.optimizer, "max",
             factor=trainer_config["factor"],
@@ -84,15 +86,8 @@ class Trainer(object):
         else:
             self.name += "_" + self.start_time
 
-        # use which device
-        if torch.cuda.is_available():
-            self.model = self.model.cuda(args.device_id)
-        else:
-            self.model = self.model.cpu()
-
         self.loss_fn = torch.nn.CrossEntropyLoss()
-
-        configure("log/%s" % (self.name), flush_secs=5)
+        self.writer = SummaryWriter(log_dir="log/%s"%self.name)
         self.checkpoint_path = os.path.join(args.checkpoint_path, self.name)
         make_dirs(self.checkpoint_path)
 
@@ -119,9 +114,9 @@ class Trainer(object):
                     print("speed: %f examples/sec \n\n" %
                           (speed), flush=True)
 
-                    log_value('train/EM', global_acc / step_num, self.step)
-                    log_value('train/loss', global_loss / step_num, self.step)
-                    log_value('train/speed', speed, self.step)
+                    self.writer.add_scalar("train/EM", global_acc/step_num, self.step)
+                    self.writer.add_scalar("train/loss", global_loss / step_num, self.step)
+                    self.writer.add_scalar("train/speed", speed, self.step)
 
                     global_loss = 0.0
                     global_acc = 0.0
@@ -135,8 +130,8 @@ class Trainer(object):
 
                 print("exact_match: %f)" % exact_match, flush=True)
                 print("f1: %f)" % f1, flush=True)
-                log_value('dev/f1', f1, self.step)
-                log_value('dev/EM', exact_match, self.step)
+                self.writer.add_scalar('dev/f1', f1, self.step)
+                self.writer.add_scalar('dev/EM', exact_match, self.step)
 
                 if f1 > self.best_f1:
                     is_best = True

@@ -77,7 +77,7 @@ def main():
         "padding_idx": word_vocab_config["<PAD>"],
         "update": args.update_char_embedding,
         "bidirectional": args.bidirectional,
-        "cell_type": "gru", "output_dim": None}
+        "cell_type": "gru", "output_dim": 100}
 
     word_embedding_config = {"embedding_weights": wv_vec,
                              "padding_idx": word_vocab_config["<PAD>"],

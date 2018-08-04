@@ -1,6 +1,9 @@
 import torch
 from torch import nn
 from model import layer
+from model.layer import RNNDropout
+
+
 class StaticAddAttention(nn.Module):
     def __init__(self, memory_size, input_size, attention_size, dropout=0.2):
         super().__init__()
@@ -26,16 +29,18 @@ class StaticAddAttention(nn.Module):
 
 
 class StaticDotAttention(nn.Module):
-    def __init__(self, memory_size, input_size, attention_size, batch_first=False, **kwargs):
+    def __init__(self, memory_size, input_size, attention_size, batch_first=False, dropout=0.2):
 
         super().__init__()
 
         self.input_linear = nn.Sequential(
+            RNNDropout(dropout, batch_first=True),
             nn.Linear(input_size, attention_size, bias=False),
             nn.ReLU()
         )
 
         self.memory_linear = nn.Sequential(
+            RNNDropout(dropout, batch_first=True),
             nn.Linear(input_size, attention_size, bias=False),
             nn.ReLU()
         )

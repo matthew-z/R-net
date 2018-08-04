@@ -36,7 +36,7 @@ class CharLevelWordEmbeddingCNN(nn.Module):
                               out_channels=num_filters,
                               kernel_size=filter_size),
                     activation(),
-                    layer.Max(2)
+                    layer.Max(dim=2)
                 )
             )
 
@@ -95,6 +95,7 @@ class WordEmbedding(nn.Module):
         return result
 
 
+
 class SentenceEncoding(nn.Module):
     def __init__(self, input_size, hidden_size, num_layers, bidirectional, dropout, batch_first=False):
         super().__init__()
@@ -123,9 +124,9 @@ class SentenceEncoding(nn.Module):
 
 class _Encoder(nn.Module):
     def __init__(self, memory_size, input_size, hidden_size, attention_size,
-                 bidirectional, dropout, cell_factory):
+                 bidirectional, dropout, cell_factory, batch_first=False):
         super().__init__()
-
+        self.batch_first = batch_first
         cell_fn = lambda: cell_factory(input_size, cell=nn.GRUCell(input_size + memory_size, hidden_size),
                                        attention_size=attention_size, memory_size=memory_size)
 
@@ -133,22 +134,21 @@ class _Encoder(nn.Module):
         self.bidirectional = bidirectional
 
         self.cells = nn.ModuleList([cell_fn() for _ in range(num_directions)])
-        self.dropout = nn.Dropout(dropout)
 
-    def forward(self, memory, memory_mask, input, batch_first=False):
+    def forward(self, input, memory, memory_mask):
 
         if self.bidirectional:
             cell_fw, cell_bw = self.cells
             output, _ = layer.bidirectional_unroll_attention_cell(
                 cell_fw, cell_bw, input, memory, memory_mask,
-                batch_first=batch_first)
+                batch_first=self.batch_first)
 
         else:
             cell, = self.cells
             output, _ = layer.unroll_attention_cell(
-                cell, input, memory, memory_mask, batch_first=batch_first)
+                cell, input, memory, memory_mask, batch_first=self.batch_first)
 
-        return self.dropout(output)
+        return output
 
 
 class PairEncoder(_Encoder):
@@ -158,21 +158,40 @@ class PairEncoder(_Encoder):
                          bidirectional, dropout, layer.PairEncodeCell)
 
 
-class SelfMatchEncoder(nn.Module):
+class PairEncoderV2(nn.Module):
     def __init__(self, memory_size, input_size, hidden_size, attention_size,
                  bidirectional, dropout, attention_factory=attention.StaticDotAttention):
         super().__init__()
-        self.attention =attention_factory(memory_size, input_size, attention_size, dropout=dropout)
-        self.gate = layer.Gate(input_size + memory_size)
+        self.attention = attention_factory(memory_size, input_size, attention_size, dropout=dropout)
+        self.gate = layer.Gate(input_size + memory_size, dropout=dropout)
         self.rnn = nn.GRU(input_size=memory_size + input_size, hidden_size=hidden_size,
-                   bidirectional=bidirectional, dropout=dropout)
+                          bidirectional=bidirectional)
+
 
     def forward(self, input, memory, memory_mask):
         """
         Memory: T B H
         input: T B H
         """
-        output, _ =  self.rnn(self.gate(self.attention(input, memory, memory_mask)))
+        output, _ = self.rnn(self.gate(self.attention(input, memory, memory_mask)))
+        return output
+
+
+class SelfMatchEncoder(nn.Module):
+    def __init__(self, memory_size, input_size, hidden_size, attention_size,
+                 bidirectional, dropout, attention_factory=attention.StaticDotAttention):
+        super().__init__()
+        self.attention = attention_factory(memory_size, input_size, attention_size, dropout=dropout)
+        self.gate = layer.Gate(input_size + memory_size, dropout=dropout)
+        self.rnn = nn.GRU(input_size=memory_size + input_size, hidden_size=hidden_size,
+                          bidirectional=bidirectional)
+
+    def forward(self, input, memory, memory_mask):
+        """
+        Memory: T B H
+        input: T B H
+        """
+        output, _ = self.rnn(self.gate(self.attention(input, memory, memory_mask)))
         return output
 
 
@@ -190,19 +209,17 @@ class OutputLayer(nn.Module):
         self.dropout = dropout
 
         self.passage_linear = nn.Sequential(
+            nn.Dropout(dropout),
             nn.Linear(question_size + passage_size, attention_size, bias=False),
-            # nn.Dropout(dropout),
             nn.Tanh(),
             nn.Linear(attention_size, 1, bias=False),
-            # nn.Dropout(dropout)
         )
 
         self.question_linear = nn.Sequential(
+            nn.Dropout(dropout),
             nn.Linear(question_size + v_q_size, attention_size, bias=False),
-            # nn.Dropout(dropout),
             nn.Tanh(),
             nn.Linear(attention_size, 1, bias=False),
-            # nn.Dropout(dropout),
         )
 
         self.V_q = nn.Parameter(torch.randn(1, 1, v_q_size), requires_grad=True)
