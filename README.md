@@ -20,7 +20,7 @@ python main.py
 **Performance**
 Currently this implementation only obtained 70.36 F1 score(60.07 EM), so I would like to recommend https://github.com/HKUST-KnowComp/R-Net (Tensorflow) if you are looking for higher performance.
 
-<img src="img/tensorboard.jpg" width="400">
+<img src="img/tensorboard.png" width="400">
 
 **Implementation Details**
 I implemented both addition attention (like the original paper) and dot attention (like HKUST-KnowComp/R-Net).
