@@ -17,17 +17,17 @@ class RNet(nn.Module):
             padding_idx=word_embedding_config["padding_idx"],
             requires_grad=word_embedding_config["update"])
 
-        self.char_embedding = module.CharLevelWordEmbeddingCNN(
-            char_embedding_size=char_embedding_config["char_embedding_size"],
-            char_num=char_embedding_config["char_num"],
-            num_filters=char_embedding_config["num_filters"],
-            ngram_filter_sizes=char_embedding_config["ngram_filter_sizes"],
-            output_dim=char_embedding_config["output_dim"],
-            activation=char_embedding_config["activation"],
-            embedding_weights=char_embedding_config["embedding_weights"],
-            padding_idx=char_embedding_config["padding_idx"],
-            requires_grad=char_embedding_config["update"],
-        )
+        # self.char_embedding = module.CharLevelWordEmbeddingCNN(
+        #     char_embedding_size=char_embedding_config["char_embedding_size"],
+        #     char_num=char_embedding_config["char_num"],
+        #     num_filters=char_embedding_config["num_filters"],
+        #     ngram_filter_sizes=char_embedding_config["ngram_filter_sizes"],
+        #     output_dim=char_embedding_config["output_dim"],
+        #     activation=char_embedding_config["activation"],
+        #     embedding_weights=char_embedding_config["embedding_weights"],
+        #     padding_idx=char_embedding_config["padding_idx"],
+        #     requires_grad=char_embedding_config["update"],
+        # )
 
         self.r_net = _RNet(args,
                            self.word_embedding.output_dim, # + self.char_embedding.output_dim,
@@ -49,20 +49,20 @@ class RNet(nn.Module):
         question, passage = self.word_embedding(question, passage)
 
         if torch.cuda.is_available():
-            question_char = question_char.cuda(self.args.device_id)
-            passage_char = passage_char.cuda(self.args.device_id)
+            # question_char = question_char.cuda(self.args.device_id)
+            # passage_char = passage_char.cuda(self.args.device_id)
             question = question.cuda(self.args.device_id)
             passage = passage.cuda(self.args.device_id)
             question_mask = question_mask.cuda(self.args.device_id)
             passage_mask = passage_mask.cuda(self.args.device_id)
-
-        # char level embedding
-        question_char = self.char_embedding(question_char)
-        passage_char = self.char_embedding(passage_char)
-
-        # concat word embedding and char level embedding
-        passage = torch.cat([passage, passage_char], dim=-1)
-        question = torch.cat([question, question_char], dim=-1)
+        #
+        # # char level embedding
+        # question_char = self.char_embedding(question_char)
+        # passage_char = self.char_embedding(passage_char)
+        #
+        # # concat word embedding and char level embedding
+        # passage = torch.cat([passage, passage_char], dim=-1)
+        # question = torch.cat([question, question_char], dim=-1)
 
         question = question.transpose(0, 1)
         question_mask = question_mask.transpose(0, 1)

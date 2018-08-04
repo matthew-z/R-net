@@ -46,6 +46,11 @@ class Trainer(object):
         self.model = RNet.RNet(args, char_embedding_config, word_embedding_config,
                                sentence_encoding_config, pair_encoding_config,
                                self_matching_config, pointer_config)
+
+        self.configs = (char_embedding_config, word_embedding_config,
+                        sentence_encoding_config, pair_encoding_config,
+                        self_matching_config, pointer_config)
+
         # use which device
         if torch.cuda.is_available():
             self.model = self.model.cuda(args.device_id)
@@ -87,7 +92,7 @@ class Trainer(object):
             self.name += "_" + self.start_time
 
         self.loss_fn = torch.nn.CrossEntropyLoss()
-        self.writer = SummaryWriter(log_dir="log/%s"%self.name)
+        self.writer = SummaryWriter(log_dir="log/%s" % self.name)
         self.checkpoint_path = os.path.join(args.checkpoint_path, self.name)
         make_dirs(self.checkpoint_path)
 
@@ -114,7 +119,7 @@ class Trainer(object):
                     print("speed: %f examples/sec \n\n" %
                           (speed), flush=True)
 
-                    self.writer.add_scalar("train/EM", global_acc/step_num, self.step)
+                    self.writer.add_scalar("train/EM", global_acc / step_num, self.step)
                     self.writer.add_scalar("train/loss", global_loss / step_num, self.step)
                     self.writer.add_scalar("train/speed", speed, self.step)
 
@@ -147,7 +152,8 @@ class Trainer(object):
                     'name': self.name,
                     'optimizer': self.optimizer.state_dict(),
                     'start_time': self.start_time,
-                    'scheduler': self.scheduler
+                    'scheduler': self.scheduler,
+                    'configs': self.configs
                 }, is_best, self.checkpoint_path)
 
     def eval(self):
