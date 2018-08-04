@@ -13,7 +13,7 @@ import six
 import torch
 from six.moves.urllib.request import urlretrieve
 from tqdm import trange, tqdm
-
+import spacy
 URL = {
     'glove.42B': 'http://nlp.stanford.edu/data/glove.42B.300d.zip',
     'glove.840B': 'http://nlp.stanford.edu/data/glove.840B.300d.zip',
@@ -27,11 +27,11 @@ def get_args():
     parser = ArgumentParser(description='PyTorch R-net')
 
     parser.add_argument('--name', type=str, default="r-net")
-    parser.add_argument('--device_id', type=int, default=None)
+    parser.add_argument('--device_id', type=int, default=0)
     parser.add_argument('--start_epoch', type=int, default=0)
     parser.add_argument('--epoch_num', type=int, default=50)
-    parser.add_argument('--batch_size', type=int, default=48)
-    parser.add_argument('--batch_size_dev', type=int, default=64)
+    parser.add_argument('--batch_size', type=int, default=50)
+    parser.add_argument('--batch_size_dev', type=int, default=100)
     parser.add_argument('--debug', type=bool, default=False)
     parser.add_argument('--checkpoint_path', type=str, default="checkpoint")
     parser.add_argument('--resume', type=str, default=None)
@@ -47,10 +47,41 @@ def get_args():
     parser.add_argument('--num_layers', type=int, default=3)
     parser.add_argument('--app_path', type=str, default=dirname(dirname(abspath(__file__))))
     parser.add_argument('--pin_memory', type=bool, default=False)
+    parser.add_argument('--disable-cuda', action='store_true',
+                        help='Disable CUDA')
 
     args = parser.parse_args()
+
+    args.device = None
+
+    if not args.disable_cuda and torch.cuda.is_available():
+        args.device = torch.device('cuda:%d'%args.device_id)
+    else:
+        args.device = torch.device('cpu')
+
     return args
 
+
+def set_tokenizer(tokenizer):
+    """
+    Set tokenizer
+
+    :param tokenizer: tokenization method
+    :return: None
+    """
+    if tokenizer == "nltk":
+        tokenizer = nltk.word_tokenize
+    elif tokenizer == "spacy":
+        spacy_en = spacy.load("en")
+
+        def spacy_tokenizer(seq):
+            return [w.text for w in spacy_en(seq)]
+
+        tokenizer = spacy_tokenizer
+    else:
+        raise ValueError("Invalid tokenizing method %s" % tokenizer)
+
+    return tokenizer
 
 def reporthook(t):
     """https://github.com/tqdm/tqdm"""
@@ -208,9 +239,10 @@ def maybe_download(url, download_path, filename):
             print("An error occurred when downloading the file! Please get the dataset using a browser.")
             raise e
 
+def simple_tokenize(sentence):
+    return sentence.split()
 
-def read_train_json(path, debug_mode, debug_len, delete_long_context=True, delete_long_question=True,
-                    longest_context=300, longest_question=30):
+def read_train_json(path, debug_mode, debug_len):
     with open(path) as fin:
         data = json.load(fin)
     examples = []
@@ -219,14 +251,10 @@ def read_train_json(path, debug_mode, debug_len, delete_long_context=True, delet
         for p in topic['paragraphs']:
             qas = p['qas']
             passage = p['context']
-            if delete_long_context and len(nltk.word_tokenize(passage)) > longest_context:
-                continue
+
             for qa in qas:
                 question = qa["question"]
                 answers = qa["answers"]
-
-                if delete_long_question and len(nltk.word_tokenize(question)) > longest_question:
-                    continue
 
                 question_id = qa["id"]
                 for ans in answers:
@@ -379,7 +407,7 @@ def prepare_data():
     make_dirs("data/trained_model")
     make_dirs("checkpoint")
 
-    nltk.download("punkt")
+    nltk.download("punkt", quiet=True)
 
     train_filename = "train-v1.1.json"
     dev_filename = "dev-v1.1.json"

@@ -1,79 +1,62 @@
+import random
 from functools import partial
 
-import nltk
-import spacy
 import torch
-from torch.autograd import Variable
-from torch.utils.data import DataLoader
-from torch.utils.data import Dataset
+from torch.utils import data
 
-from utils.utils import read_train_json, read_dev_json, tokenized_by_answer, sort_idx
+from utils.utils import read_train_json, read_dev_json, tokenized_by_answer, set_tokenizer
+import progressbar
 
 
-def padding(seqs, pad, batch_first=False):
+def padding(seqs, pad_value=0, output_batch_first=True):
     """
-
-    :param seqs: tuple of seq_length x dim
-    :return: seq_length x Batch x dim
+    :param seqs: sequence of seq_length x dim
     """
     lengths = [len(s) for s in seqs]
 
     seqs = [torch.Tensor(s) for s in seqs]
     batch_length = max(lengths)
-    seq_tensor = torch.LongTensor(batch_length, len(seqs)).fill_(pad)
+    seq_tensor = torch.full([batch_length, len(seqs)], pad_value, dtype=torch.int64)
+    mask = torch.zeros(seq_tensor.size(), dtype=torch.uint8)
+
     for i, s in enumerate(seqs):
         end_seq = lengths[i]
         seq_tensor[:end_seq, i].copy_(s[:end_seq])
-    if batch_first:
+        mask[:end_seq, i].fill_(1.)
+    if output_batch_first:
         seq_tensor = seq_tensor.t()
-    return (seq_tensor, lengths)
+        mask = mask.t()
+    return (seq_tensor, mask, lengths)
 
 
-class Documents(object):
+def padding_2d(seqs, pad_value=0):
     """
-        Helper class for organizing and sorting seqs
-
-        should be batch_first for embedding
+    :param seqs:  sequence of sentences, each word is a list of chars
     """
+    sentence_length = 0
+    word_length = 0
+    lengths = []
+    for seq in seqs:
+        sentence_length = max(sentence_length, len(seq))
+        for word in seq:
+            word_length = max(word_length, len(word))
 
-    def __init__(self, tensor, lengths):
-        self.original_lengths = lengths
-        sorted_lengths_tensor, self.sorted_idx = torch.sort(torch.LongTensor(lengths), dim=0, descending=True)
-
-        self.tensor = tensor.index_select(dim=0, index=self.sorted_idx)
-
-        self.lengths = list(sorted_lengths_tensor)
-        self.original_idx = torch.LongTensor(sort_idx(self.sorted_idx))
-
-        self.mask_original = torch.zeros(*self.tensor.size())
-        for i, length in enumerate(self.original_lengths):
-            self.mask_original[i][:length].fill_(1)
-
-    def variable(self, volatile=False):
-        self.tensor = Variable(self.tensor, volatile=volatile)
-        self.sorted_idx = Variable(self.sorted_idx, volatile=volatile)
-        self.original_idx = Variable(self.original_idx, volatile=volatile)
-        self.mask_original = Variable(self.mask_original, volatile=volatile)
-        return self
-
-    def cuda(self, *args, **kwargs):
-        if torch.cuda.is_available():
-            self.sorted_idx = self.sorted_idx.cuda(*args, **kwargs)
-            self.original_idx = self.original_idx.cuda(*args, **kwargs)
-            self.mask_original = self.mask_original.cuda(*args, **kwargs)
-
-        return self
-
-    def restore_original_order(self, sorted_tensor, batch_dim):
-        return sorted_tensor.index_select(dim=batch_dim, index=self.original_idx)
-
-    def to_sorted_order(self, original_tensor, batch_dim):
-        return original_tensor.index_select(dim=batch_dim, index=self.sorted_idx)
+    tensor = torch.full([len(seqs), sentence_length, word_length], pad_value, dtype=torch.int64)
+    mask = torch.zeros(tensor.size(), dtype=torch.uint8)
+    for i, s in enumerate(seqs):
+        lengths.append([])
+        for j, w in enumerate(s):
+            tensor[i, j, :len(w)].copy_(torch.Tensor(w))
+            mask[i, j, :len(w)].fill_(1)
+            lengths[-1].append(len(w))
+    return tensor, mask, lengths
 
 
-class SQuAD(Dataset):
-    def __init__(self, path, itos, stoi, itoc, ctoi, tokenizer="nltk", split="train",
+class SQuAD(data.Dataset):
+    def __init__(self, path,  stoi, ctoi,
+                 tokenizer="nltk", split="train",
                  debug_mode=False, debug_len=50):
+        """ Build a dataset to fetch batch"""
 
         self.insert_start = stoi.get("<SOS>", None)
         self.insert_end = stoi.get("<EOS>", None)
@@ -81,48 +64,50 @@ class SQuAD(Dataset):
         self.PAD = stoi.get("<PAD>", None)
         self.stoi = stoi
         self.ctoi = ctoi
-        self.itos = itos
-        self.itoc = itoc
         self.split = split
-        self._set_tokenizer(tokenizer)
+        tokenizer = set_tokenizer(tokenizer)
 
         # Read and parsing raw data from json
         # Tokenizing with answer may result in different tokenized passage even the passage is the same one.
         # So we tokenize passage for each question in train split
         if self.split == "train":
             self.examples = read_train_json(path, debug_mode, debug_len)
-            self._tokenize_passage_with_answer_for_train()
+            for example in self.examples:
+                example.tokenized_passage, answer_start, answer_end = tokenized_by_answer(
+                    example.passage,
+                    example.answer_text,
+                    example.answer_start,
+                    tokenizer)
+                example.answer_position = (answer_start, answer_end)
         else:
             self.examples = read_dev_json(path, debug_mode, debug_len)
-            for e in self.examples:
-                e.tokenized_passage = self.tokenizer(e.passage)
+            for example in self.examples:
+                example.tokenized_passage = tokenizer(example.passage)
 
-        for e in self.examples:
-            e.tokenized_question = self.tokenizer(e.question)
-            e.numeralized_question = self._numeralize_word_seq(e.tokenized_question, self.stoi)
-            e.numeralized_passage = self._numeralize_word_seq(e.tokenized_passage, self.stoi)
-            e.numeralized_question_char = self._char_level_numeralize(e.tokenized_question)
-            e.numeralized_passage_char = self._char_level_numeralize(e.tokenized_passage)
+        for example in progressbar.progressbar(self.examples):
+            example.tokenized_question = tokenizer(example.question)
+            example.numeralized_question = self._numeralize_word_seq(example.tokenized_question, self.stoi)
+            example.numeralized_passage = self._numeralize_word_seq(example.tokenized_passage, self.stoi)
+            example.numeralized_question_char = self._char_level_numeralize(example.tokenized_question)
+            example.numeralized_passage_char = self._char_level_numeralize(example.tokenized_passage)
 
-    def _tokenize_passage_with_answer_for_train(self):
-        for example in self.examples:
-            example.tokenized_passage, answer_start, answer_end = tokenized_by_answer(example.passage, example.answer_text,
-                                                                              example.answer_start, self.tokenizer)
-            example.answer_position = (answer_start, answer_end)
+        if self.split == "train":
+            self.examples = [example for example in self.examples
+                             if len(example.tokenized_passage) <= 300 and len(example.tokenized_question) <= 50]
+        self.examples.sort(key=lambda example: (len(example.numeralized_passage), len(example.numeralized_question)), reverse=True)
 
-    def _char_level_numeralize(self, tokenized_doc):
-        result = []
+    def _char_level_numeralize(self, tokenized_doc, insert_sos=False, insert_eos=False):
+        result = [] if not insert_sos else [self.insert_start]
         for word in tokenized_doc:
             result.append(self._numeralize_word_seq(word, self.ctoi))
+        if insert_eos:
+            result.append(self.insert_end)
         return result
 
-    def _numeralize_word_seq(self, seq, stoi, insert_sos=False, insert_eos=False):
-        if self.insert_start is not None and insert_sos:
-            result = [self.insert_start]
-        else:
-            result = []
+    def _numeralize_word_seq(self, seq, to_index, insert_sos=False, insert_eos=False):
+        result = [] if not insert_sos else [self.insert_start]
         for word in seq:
-            result.append(stoi.get(word, 0))
+            result.append(to_index.get(word, 0))
         if self.insert_end is not None and insert_eos:
             result.append(self.insert_end)
         return result
@@ -133,63 +118,91 @@ class SQuAD(Dataset):
             return (item, item.question_id, item.numeralized_question, item.numeralized_question_char,
                     item.numeralized_passage, item.numeralized_passage_char,
                     item.answer_position, item.answer_text, item.tokenized_passage)
-        else:
-            return (item, item.question_id, item.numeralized_question, item.numeralized_question_char,
-                    item.numeralized_passage, item.numeralized_passage_char,
-                    item.tokenized_passage)
+        return (item, item.question_id, item.numeralized_question, item.numeralized_question_char,
+                item.numeralized_passage, item.numeralized_passage_char,
+                item.tokenized_passage)
 
     def __len__(self):
         return len(self.examples)
 
-    def _set_tokenizer(self, tokenizer):
-        """
-        Set tokenizer
+    def _create_collate_fn(self, batch_first, device):
+        if not batch_first:
+            raise NotImplementedError
 
-        :param tokenizer: tokenization method
-        :return: None
-        """
-        if tokenizer == "nltk":
-            self.tokenizer = nltk.word_tokenize
-        elif tokenizer == "spacy":
-            spacy_en = spacy.load("en")
-
-            def spacy_tokenizer(seq):
-                return [w.text for w in spacy_en(seq)]
-
-            self.tokenizer = spacy_tokenizer
-        else:
-            raise ValueError("Invalid tokenizing method %s" % tokenizer)
-
-    def _create_collate_fn(self, batch_first=True):
+        if device is None:
+            if torch.cuda.is_available():
+                device = torch.device('cuda')
+            else:
+                device = torch.device('cpu')
 
         def collate(examples, this):
             if this.split == "train":
-                items, question_ids, questions, questions_char, passages, passages_char, answers_positions, answer_texts, passage_tokenized = zip(
+                items, question_ids, questions, questions_char, passages, \
+                passages_char, answers_positions, answer_texts, passage_tokenized = zip(
                     *examples)
             else:
-                items, question_ids, questions, questions_char, passages, passages_char, passage_tokenized = zip(*examples)
+                items, question_ids, questions, questions_char, passages, \
+                passages_char, passage_tokenized = zip(
+                    *examples)
 
-            questions_tensor, question_lengths = padding(questions, this.PAD, batch_first=batch_first)
-            passages_tensor, passage_lengths = padding(passages, this.PAD, batch_first=batch_first)
+            # sentences are not sorted by length
+            question, question_mask, _ = padding(questions, this.PAD)
+            passage, passage_mask, _ = padding(passages, this.PAD)
 
-            # TODO: implement char level embedding
-
-            question_document = Documents(questions_tensor, question_lengths)
-            passages_document = Documents(passages_tensor, passage_lengths)
+            question_char, _, _ = padding_2d(questions_char, this.PAD)
+            passage_char, _, _ = padding_2d(passages_char, this.PAD)
 
             if this.split == "train":
-                return question_ids, question_document, passages_document, torch.LongTensor(answers_positions), answer_texts
+                answers_positions = torch.tensor(answers_positions, dtype=torch.int64)
+                return (question_ids,
+                        question, question_char, question_mask,
+                        passage, passage_char, passage_mask,
+                        answers_positions)
 
-            else:
-                return question_ids, question_document, passages_document, passage_tokenized
+            return (question_ids,
+                    question, question_char, question_mask,
+                    passage, passage_char, passage_mask,
+                    passage_tokenized)
 
         return partial(collate, this=self)
 
-    def get_dataloader(self, batch_size, num_workers=4, shuffle=True, batch_first=True, pin_memory=False):
+    def get_dataloader(self, batch_size, num_workers=4, shuffle=True, batch_first=True, pin_memory=False, device=None):
         """
 
-        :param batch_first:  Currently, it must be True as nn.Embedding requires batch_first input
+        :param batch_first:  Currently, it must be True
         """
-        return DataLoader(self, batch_size=batch_size, shuffle=shuffle,
-                          collate_fn=self._create_collate_fn(batch_first),
-                          num_workers=num_workers, pin_memory=pin_memory)
+        if not batch_first:
+            raise NotImplementedError
+
+        sampler = None
+        if shuffle:
+            sampler = BucketSampler([len(e.numeralized_passage) for e in self.examples], batch_size)
+
+        return data.DataLoader(self, batch_size=batch_size, sampler=sampler,
+                               collate_fn=self._create_collate_fn(batch_first, device),
+                               num_workers=num_workers, pin_memory=pin_memory)
+
+
+class BucketSampler(data.Sampler):
+    def __init__(self, sorted_lengths, batch_size):
+        super().__init__(sorted_lengths)
+        self.lengths = sorted_lengths
+        self.cache_size = batch_size * 50
+        self.batch_size = batch_size
+
+    def __iter__(self):
+        def iter():
+            indices = torch.randperm(len(self.lengths)).tolist()
+            for start in range(0, len(indices), self.cache_size):
+                cache = indices[start:start + self.cache_size]
+                cache.sort()
+                starts = list(range(0, len(cache), self.batch_size))
+                random.shuffle(starts)
+                for batch_start in starts:
+                    batch = cache[batch_start:batch_start + self.batch_size]
+                    for i in batch:
+                        yield i
+        return iter()
+
+    def __len__(self):
+        return len(self.lengths)
