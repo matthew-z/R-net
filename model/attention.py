@@ -54,7 +54,7 @@ class StaticDotAttention(nn.Module):
             mask = memory_mask.transpose(0, 1)
 
         input_ = self.input_linear(input)
-        memory_ = self.input_linear(memory)
+        memory_ = self.memory_linear(memory)
         logits = torch.bmm(input_, memory_.transpose(2, 1)) / (self.attention_size ** 0.5)
         mask = mask.unsqueeze(1).expand(-1, input.size(1), -1)
         logits, score = layer.softmax_mask(logits, mask, dim=-1)
