@@ -1,153 +1,121 @@
-import os
-import pickle
+import argparse
+import datetime
+from pathlib import Path
 
-import torch
-from torch import nn
-from trainer import Trainer
-from utils.utils import prepare_data, get_args, read_embedding
-import torch.optim.lr_scheduler
-from torch.nn.utils.clip_grad import clip_grad_norm
+from allennlp.commands import main, Subcommand
+from allennlp.commands.train import train_model
+from allennlp.common import Params
+from allennlp.common.util import import_submodules
+from allennlp.models import Model
 
 
-# TODO: read vocab into a cpu embedding layer
-def read_vocab(vocab_config):
+class MyTrain(Subcommand):
+    def add_subparser(self, name: str, parser: argparse._SubParsersAction) -> argparse.ArgumentParser:
+        # pylint: disable=protected-access
+        description = '''Train the specified model on the specified dataset.'''
+        subparser = parser.add_parser(name, description=description, help='Train a model')
+
+        subparser.add_argument('param_path',
+                               type=str,
+                               help='path to parameter file describing the model to be trained')
+
+        subparser.add_argument('-s', '--serialization-dir',
+                               required=False,
+                               default="",
+                               type=str,
+                               help='directory in which to save the model and its logs')
+
+        subparser.add_argument('-r', '--recover',
+                               action='store_true',
+                               default=False,
+                               help='recover training from the state in serialization_dir')
+
+        subparser.add_argument('-f', '--force',
+                               action='store_true',
+                               required=False,
+                               help='overwrite the output directory if it exists')
+
+        subparser.add_argument('-o', '--overrides',
+                               type=str,
+                               default="",
+                               help='a JSON structure used to override the experiment configuration')
+
+
+        subparser.add_argument('-e', '--ext-vars',
+                               type=str,
+                               default=None,
+                               help='Used to provide ext variable to jsonnet')
+
+        subparser.add_argument('--fp16',
+                               action='store_true',
+                               required=False,
+                               help='use fp 16 training')
+
+        subparser.add_argument('--file-friendly-logging',
+                               action='store_true',
+                               default=False,
+                               help='outputs tqdm status on separate lines and slows tqdm refresh rate')
+
+        subparser.set_defaults(func=train_model_from_args)
+
+        return subparser
+
+
+def train_model_from_args(args: argparse.Namespace):
     """
-    :param counter: counter of words in dataset
-    :param vocab_config: word_embedding config: (root, word_type, dim)
-    :return: itos, stoi, vectors
+    Just converts from an ``argparse.Namespace`` object to string paths.
     """
-    wv_dict, wv_vectors, wv_size = read_embedding(vocab_config["embedding_root"],
-                                                  vocab_config["embedding_type"],
-                                                  vocab_config["embedding_dim"])
-    # embedding size = glove vector size
-    embed_size = wv_vectors.size(1)
-    print("word embedding size: %d" % embed_size)
 
-    itos = vocab_config['specials'][:]
-    stoi = {}
+    start_time = datetime.datetime.now().strftime('%b-%d_%H-%M')
 
-    itos.extend(list(w for w, i in sorted(wv_dict.items(), key=lambda x: x[1])))
-
-    for idx, word in enumerate(itos):
-        stoi[word] = idx
-
-    vectors = torch.zeros([len(itos), embed_size])
-
-    for word, idx in stoi.items():
-        if word not in wv_dict or word in vocab_config['specials']:
-            continue
-        vectors[idx, :wv_size].copy_(wv_vectors[wv_dict[word]])
-    return itos, stoi, vectors
-
-
-def main():
-    args = get_args()
-    prepare_data()
-    word_vocab_config = {
-        "<UNK>": 0,
-        "<PAD>": 1,
-        "<start>": 2,
-        "<end>": 3,
-        "insert_start": "<SOS>",
-        "insert_end": "<EOS>",
-        "tokenization": "sdf",
-        "specials": ["<UNK>", "<PAD>", "<SOS>", "<EOS>"],
-        "embedding_root": os.path.join(args.app_path, "data", "embedding", "word"),
-        "embedding_type": "glove.840B",
-        "embedding_dim": 300
-    }
-
-    print("Reading Vocab", flush=True)
-    char_vocab_config = word_vocab_config.copy()
-    char_vocab_config["embedding_root"] = os.path.join(args.app_path, "data", "embedding", "char")
-    char_vocab_config["embedding_type"] = "glove_char.840B"
-
-    # TODO: build vocab out of dataset
-    # build vocab
-    itos, stoi, wv_vec = read_vocab(word_vocab_config)
-    itoc, ctoi, cv_vec = read_vocab(char_vocab_config)
-
-    char_embedding_config = {
-        "char_embedding_size": 16,
-        "char_num": cv_vec.size(0),
-        "embedding_weights": cv_vec,
-        "num_filters": 100,
-        "ngram_filter_sizes": [2, 4, 5],
-        "activation": torch.nn.ReLU,
-        "padding_idx": word_vocab_config["<PAD>"],
-        "update": args.update_char_embedding,
-        "bidirectional": args.bidirectional,
-        "cell_type": "gru", "output_dim": 100}
-
-    word_embedding_config = {"embedding_weights": wv_vec,
-                             "padding_idx": word_vocab_config["<PAD>"],
-                             "update": args.update_word_embedding}
-
-    sentence_encoding_config = {"hidden_size": args.hidden_size,
-                                "num_layers": args.num_layers,
-                                "bidirectional": True,
-                                "dropout": args.dropout, }
-
-    pair_encoding_config = {"hidden_size": args.hidden_size,
-                            "num_layers": args.num_layers,
-                            "bidirectional": args.bidirectional,
-                            "dropout": args.dropout,
-                            "attention_size": args.attention_size}
-
-    self_matching_config = {"hidden_size": args.hidden_size,
-                            "num_layers": args.num_layers,
-                            "bidirectional": args.bidirectional,
-                            "dropout": args.dropout,
-                            "attention_size": args.attention_size}
-
-    pointer_config = {"hidden_size": args.hidden_size,
-                      "num_layers": args.num_layers,
-                      "dropout": args.dropout,
-                      "residual": args.residual,
-                      "rnn_cell": torch.nn.GRUCell}
-
-    trainer_config = {
-        "lr": 1,
-        "optimizer": torch.optim.Adadelta,
-        "scheduler": torch.optim.lr_scheduler.ReduceLROnPlateau,
-        "factor": 0.5,
-        "patience": 2,
-        "grad_norm": 5
-    }
-
-    print("DEBUG Mode is ", "On" if args.debug else "Off", flush=True)
-    train_cache = "./data/cache/SQuAD%s.pkl" % ("_debug" if args.debug else "")
-    dev_cache = "./data/cache/SQuAD_dev%s.pkl" % ("_debug" if args.debug else "")
-
-    train_json = args.train_json
-    dev_json = args.dev_json
-
-    train = read_dataset(train_json, stoi, ctoi, train_cache, args.debug)
-    dev = read_dataset(dev_json, stoi, ctoi, dev_cache, args.debug, split="dev")
-
-    dev_dataloader = dev.get_dataloader(args.batch_size_dev, shuffle=False)
-    train_dataloader = train.get_dataloader(args.batch_size, shuffle=True)
-
-    trainer = Trainer(args, train_dataloader, dev_dataloader,
-                      char_embedding_config, word_embedding_config,
-                      sentence_encoding_config, pair_encoding_config,
-                      self_matching_config, pointer_config, trainer_config)
-    trainer.train(args.epoch_num)
-
-
-def read_dataset(json_file, stoi, ctoi, cache_file, is_debug=False, split="train"):
-    if os.path.isfile(cache_file):
-        print("Read built %s dataset from %s" % (split, cache_file), flush=True)
-        dataset = pickle.load(open(cache_file, "rb"))
-        print("Finished reading %s dataset from %s" % (split, cache_file), flush=True)
-
+    if args.serialization_dir:
+        serialization_dir = args.serialization_dir
     else:
-        print("building %s dataset" % split, flush=True)
-        from utils.dataset import SQuAD
-        dataset = SQuAD(json_file,  stoi, ctoi, debug_mode=is_debug, split=split)
-        pickle.dump(dataset, open(cache_file, "wb"))
-    return dataset
+        path = Path(args.param_path.replace("configs/", "results/")).resolve()
+        serialization_dir = path.with_name(path.stem) / start_time
+
+
+    train_model_from_file(args.param_path,
+                          serialization_dir,
+                          args.overrides,
+                          args.file_friendly_logging,
+                          args.recover,
+                          args.force,
+                          args.ext_vars)
+
+def train_model_from_file(parameter_filename: str,
+                          serialization_dir: str,
+                          overrides: str = "",
+                          file_friendly_logging: bool = False,
+                          recover: bool = False,
+                          force: bool = False,
+                          ext_vars=None) -> Model:
+    """
+    A wrapper around :func:`train_model` which loads the params from a file.
+
+    Parameters
+    ----------
+    param_path : ``str``
+        A json parameter file specifying an AllenNLP experiment.
+    serialization_dir : ``str``
+        The directory in which to save results and logs. We just pass this along to
+        :func:`train_model`.
+    overrides : ``str``
+        A JSON string that we will use to override values in the input parameter file.
+    file_friendly_logging : ``bool``, optional (default=False)
+        If ``True``, we make our output more friendly to saved model files.  We just pass this
+        along to :func:`train_model`.
+    recover : ``bool`, optional (default=False)
+        If ``True``, we will try to recover a training run from an existing serialization
+        directory.  This is only intended for use when something actually crashed during the middle
+        of a run.  For continuing training a model on new data, see the ``fine-tune`` command.
+    """
+    # Load the experiment config from a file and pass it to ``train_model``.
+    params = Params.from_file(parameter_filename, overrides, ext_vars=ext_vars)
+    return train_model(params, serialization_dir, file_friendly_logging, recover, force)
 
 
 if __name__ == "__main__":
-    main()
+    import_submodules("qa")
+    import_submodules("modules")
+    main(prog="ReadingZoo",subcommand_overrides={"train": MyTrain()})
