@@ -27,11 +27,11 @@ Some notes about  [HKUST-KnowComp/R-Net](https://github.com/HKUST-KnowComp/R-Net
 ### Usage
 
 ```
+git clone https://github.com/matthew-z/R-net.git
 cd R-net
 python main.py train ./configs/squad/r-net/hkust.jsonnet -o '{"iterator.batch_size": 128}'
 ```
-
-
+Note that the batch size may be a bit too large for 11GB GPUs. Please try 64 in case of OOM Error.
 
 ### Configuration
 
@@ -39,7 +39,6 @@ The models and hyperparameters are declared in `configs/`
 
 * the HKUST-R-Net: `configs/r-net/hkust.jsonnet`
 * the original R-Net: `configs/r-net/original.jsonnet`  (currently not workable)
-
 
 
 ### Performance
