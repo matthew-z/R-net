@@ -1,40 +1,62 @@
-**Work In Progress.**
 
-
-An unofficial implementation of R-net in PyTorch.
+An unofficial implementation of R-net in [PyTorch](https://github.com/pytorch/pytorch) and [AllenNLP](https://github.com/allenai/allennlp).
 
 [Natural Language Computing Group, MSRA: R-NET: Machine Reading Comprehension with Self-matching Networks](https://www.microsoft.com/en-us/research/publication/mrc/)
 
+However, I failed to reproduce the result with the model described in this paper because some details are not very clear to me and the dynamic attention in self-matching requires too much memory. 
+
+Thus, I implemented the variant of R-Net according to [HKUST-KnowComp/R-Net](https://github.com/HKUST-KnowComp/R-Net) (in Tensorflow).
+
+Some notes about  [HKUST-KnowComp/R-Net](https://github.com/HKUST-KnowComp/R-Net)  (the model is in configs/r-net/hkust.jsonnet) :
+* Question and Passage share the same GRU sentence encoder instead of using separate encoders.
+* Sentence Encoders have three layers, but the output is the concat of the three layers instead of the output of the top layer.
+* Attentions in pair enocder and self-matching encoder are calculated before RNN (static attention) instead of at each RNN step (dynamic attention).
+* The GRUs in the pair encoder and the self-matching encoder have only one layer instead of three layers. 
+* Variational dropouts are applied to (1) the inputs of RNNs (2) inputs of attentions 
 
 
-Python 3.5/3.6  and PyTorch 0.41
+
+### Dependency
+
+* Python == 3.6
+* [AllenNLP](https://github.com/allenai/allennlp) == 0.7.2
+* PyTorch == 1.0
 
 
-**Usage**
+
+### Usage
 
 ```
-python main.py
-
+cd R-net
+python main.py train ./configs/squad/r-net/hkust.jsonnet -o '{"iterator.batch_size": 128}'
 ```
 
-**Performance**
-
-Currently this implementation only obtained 70.36 F1 score(60.07 EM), so I would like to recommend https://github.com/HKUST-KnowComp/R-Net (Tensorflow) if you are looking for higher performance.
-
-<img src="img/tensorboard.png" width="800">
 
 
-**Implementation Details**
+### Configuration
 
-I implemented both addition attention (like the original paper) and dot attention (like HKUST-KnowComp/R-Net).
+The models and hyperparameters are declared in `configs/`
 
-While both of them are fine with pair encoder, it seems that self matching encoder with addition attention uses too much CUDA Memory. Thus, dot attention is used for self matching encoder.
-Also, dot attention is used for pair encoder by default which does not affect performance much but improves training speed largely.
+* the HKUST-R-Net: `configs/r-net/hkust.jsonnet`
+* the original R-Net: `configs/r-net/original.jsonnet`  (currently not workable)
 
-Pair encoder + Addition attention: model/module.py: PairEncoder
 
-Pair encoder + Dot attention: model/module.py: PairEncoderV2
 
-Addition attention for self matching encoder: model/module.py: StaticAddAttention
+### Performance
 
-Dot attention for self matching encoder: model/module.py: StaticDotAttention
+The HKUST-R-Net can obtain 79.1 F1 score (70.1 EM) on the dev set.
+
+
+
+Red: Training score
+
+Green: Validation score
+
+<img src="img/f1.png" width="400"> 
+<img src="img/em.png" width="400">
+
+
+
+### Acknowledgement 
+
+Thank  [HKUST-KnowComp/R-Net](https://github.com/HKUST-KnowComp/R-Net) for sharing their Tensorflow implementation of R-net. This repo is based on their work.
