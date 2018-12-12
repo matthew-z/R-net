@@ -56,6 +56,12 @@ Green: Validation score
 
 
 
+### Future Work
+
+* Add ensemble training
+* Add recent embeddings like ElMo and BERT
+
+
 ### Acknowledgement 
 
 Thank  [HKUST-KnowComp/R-Net](https://github.com/HKUST-KnowComp/R-Net) for sharing their Tensorflow implementation of R-net. This repo is based on their work.
