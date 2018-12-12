@@ -1,5 +1,5 @@
 
-An unofficial implementation of R-net in PyTorch and AllenNLP.
+An unofficial implementation of R-net in [PyTorch](https://github.com/pytorch/pytorch) and [AllenNLP](https://github.com/allenai/allennlp).
 
 [Natural Language Computing Group, MSRA: R-NET: Machine Reading Comprehension with Self-matching Networks](https://www.microsoft.com/en-us/research/publication/mrc/)
 
@@ -19,7 +19,7 @@ Some notes about  [HKUST-KnowComp/R-Net](https://github.com/HKUST-KnowComp/R-Net
 ### Dependency
 
 * Python == 3.6
-* AllenNLP == 0.7.2
+* [AllenNLP](https://github.com/allenai/allennlp) == 0.7.2
 * PyTorch == 1.0
 
 
@@ -54,3 +54,9 @@ Green: Validation score
 
 <img src="img/f1.png" width="400"> 
 <img src="img/em.png" width="400">
+
+
+
+### Acknowledgement 
+
+Thank  [HKUST-KnowComp/R-Net](https://github.com/HKUST-KnowComp/R-Net) for sharing their Tensorflow implementation of R-net. This repo is based on their work.
