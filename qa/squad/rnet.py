@@ -2,6 +2,7 @@ from typing import Dict, Optional, List, Any
 
 import torch
 from allennlp.data import Vocabulary
+from allennlp.models import BidirectionalAttentionFlow
 from allennlp.models.model import Model
 from allennlp.modules import TextFieldEmbedder, Seq2SeqEncoder
 from allennlp.nn import InitializerApplicator, RegularizerApplicator
@@ -13,7 +14,7 @@ from torch.nn.functional import nll_loss
 from modules.pair_encoder.pair_encoder import AttentionEncoder
 from modules.pointer_network.pointer_network import QAOutputLayer
 
-@Model.register("r_net") 
+@Model.register("r_net")
 class RNet(Model):
     def __init__(self,
                  vocab: Vocabulary,
@@ -49,6 +50,9 @@ class RNet(Model):
                 span_start: torch.IntTensor = None,
                 span_end: torch.IntTensor = None,
                 metadata: List[Dict[str, Any]] = None) -> Dict[str, torch.Tensor]:
+
+        # Forward and Compute the loss for training.
+        # some code are copied from allennlp.models.BidirectionalAttentionFlow
 
         question_embeded = self.text_field_embedder(question)
         passage_embeded = self.text_field_embedder(passage)
@@ -90,7 +94,7 @@ class RNet(Model):
             "best_span": best_span,
         }
 
-        # Compute the loss for training.
+
         if span_start is not None:
             loss = nll_loss(util.masked_log_softmax(
                 span_start_logits, passage_mask), span_start.squeeze(-1))
