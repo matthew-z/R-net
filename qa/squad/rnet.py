@@ -51,9 +51,6 @@ class RNet(Model):
                 span_end: torch.IntTensor = None,
                 metadata: List[Dict[str, Any]] = None) -> Dict[str, torch.Tensor]:
 
-        # Forward and Compute the loss for training.
-        # some code are copied from allennlp.models.BidirectionalAttentionFlow
-
         question_embeded = self.text_field_embedder(question)
         passage_embeded = self.text_field_embedder(passage)
 
@@ -76,6 +73,8 @@ class RNet(Model):
         span_start_logits, span_end_logits = self.output_layer(
             quetion_encoded, question_mask, passage_encoded, passage_mask)
 
+        # Calculating loss and making prediction
+        # Following code is copied from allennlp.models.BidirectionalAttentionFlow
         span_start_probs = util.masked_softmax(span_start_logits, passage_mask)
         span_end_probs = util.masked_softmax(span_end_logits, passage_mask)
 
