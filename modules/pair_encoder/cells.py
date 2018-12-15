@@ -1,13 +1,10 @@
 import torch
 from torch import nn
-import torch.nn.functional as F
-from modules.gate import Gate
 from torch import Tensor
-
+from allennlp.nn.util import masked_softmax
 
 class _PairEncodeCell(nn.Module):
-    def __init__(self, input_size, cell, attention_size, memory_size=None, use_state_in_attention=True,
-                 dropout=0.2, batch_first=False):
+    def __init__(self, input_size, cell, attention_size, memory_size=None, use_state_in_attention=True, batch_first=False):
         super().__init__()
         if memory_size is None:
             memory_size = input_size
@@ -25,7 +22,6 @@ class _PairEncodeCell(nn.Module):
             nn.Tanh(),
             nn.Linear(attention_size, 1, bias=False))
 
-        self.gate = Gate(input_size + memory_size, dropout=dropout)
         self.batch_first = batch_first
 
     def forward(self, inputs: Tensor, memory: Tensor = None, memory_mask: Tensor = None, state: Tensor = None):
@@ -58,29 +54,27 @@ class _PairEncodeCell(nn.Module):
             attention_input = inputs.unsqueeze(0).expand(memory_time_length, -1, -1)
 
         attention_logits = self.attention_w(torch.cat([attention_input, memory], dim=-1)).squeeze(-1)
-        attention_scores = F.softmax(
-            torch.where(memory_mask, attention_logits, torch.full_like(attention_logits, -1e12)), dim=0)
+
+        attention_scores = masked_softmax(attention_logits, memory_mask, dim=0)
+
         attention_vector = torch.sum(attention_scores.unsqueeze(-1) * memory, dim=0)
 
         new_input = torch.cat([inputs, attention_vector], dim=-1)
-        new_input = self.gate(new_input)
 
         return self.cell(new_input, state)
 
 
 class PairEncodeCell(_PairEncodeCell):
     def __init__(self, input_size, cell, attention_size,
-                 memory_size=None, dropout=0.2, batch_first=False):
+                 memory_size=None, batch_first=False):
         super().__init__(
             input_size, cell, attention_size,
-            memory_size=memory_size, use_state_in_attention=True,
-            dropout=dropout, batch_first=batch_first)
+            memory_size=memory_size, use_state_in_attention=True, batch_first=batch_first)
 
 
 class SelfMatchCell(_PairEncodeCell):
     def __init__(self, input_size, cell, attention_size,
-                 memory_size=None, dropout=0.2, batch_first=False):
+                 memory_size=None, batch_first=False):
         super().__init__(
             input_size, cell, attention_size,
-            memory_size=memory_size, use_state_in_attention=False,
-            dropout=dropout, batch_first=batch_first)
+            memory_size=memory_size, use_state_in_attention=False, batch_first=batch_first)

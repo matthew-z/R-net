@@ -1,7 +1,7 @@
 from allennlp.common import Registrable
 from torch import nn
 import torch
-from modules.utils import softmax_mask
+from allennlp.nn.util import masked_softmax
 from modules.dropout import RNNDropout
 from overrides import overrides
 
@@ -65,13 +65,13 @@ class PointerNetwork(QAOutputLayer):
     def _question_pooling(self, question, question_mask):
         V_q = self.V_q.expand(question.size(0), question.size(1), -1)
         logits = self.question_linear(torch.cat([question, V_q], dim=-1)).squeeze(-1)
-        logits, score = softmax_mask(logits, question_mask, dim=0)
+        score = masked_softmax(logits, question_mask, dim=0)
         state = torch.sum(score.unsqueeze(-1) * question, dim=0)
         return state
 
     def _passage_attention(self, passage, passage_mask, state):
         state_expand = state.unsqueeze(0).expand(passage.size(0), -1, -1)
         logits = self.passage_linear(torch.cat([passage, state_expand], dim=-1)).squeeze(-1)
-        logits, score = softmax_mask(logits, passage_mask, dim=0)
+        score = masked_softmax(logits, passage_mask, dim=0)
         cell_input = torch.sum(score.unsqueeze(-1) * passage, dim=0)
         return cell_input, logits

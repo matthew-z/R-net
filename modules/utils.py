@@ -1,6 +1,4 @@
 import torch
-from torch.nn import functional as F
-
 
 
 def reverse_padded_sequence_fast(inputs, lengths, batch_first=False):
@@ -32,11 +30,6 @@ def reverse_padded_sequence_fast(inputs, lengths, batch_first=False):
         reversed_inputs = reversed_inputs.transpose(0, 1)
     return reversed_inputs
 
-
-def softmax_mask(logits, mask, INF=1e12, dim=None):
-    masked_logits = torch.where(mask, logits, torch.full_like(logits, -INF))
-    score = F.softmax(masked_logits, dim=dim)
-    return masked_logits, score
 
 def get_rnn(rnn_type):
     return getattr(torch.nn, rnn_type)

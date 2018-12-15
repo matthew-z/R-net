@@ -2,7 +2,7 @@ import torch
 from torch import nn
 
 from modules.dropout import RNNDropout
-from modules.utils import softmax_mask
+from allennlp.nn.util import masked_softmax
 from torch import Tensor
 
 def unroll_attention_cell(cell, inputs, memory, memory_mask, batch_first=False, initial_state=None, backward=False):
@@ -99,7 +99,7 @@ class StaticDotAttention(nn.Module):
         logits = torch.bmm(input_, memory_.transpose(2, 1)) / (self.attention_size ** 0.5)
 
         memory_mask = memory_mask.unsqueeze(1).expand(-1, inputs.size(1), -1)
-        logits, score = softmax_mask(logits, memory_mask, dim=-1)
+        score = masked_softmax(logits, memory_mask, dim=-1)
 
         context = torch.bmm(score, memory)
         new_input = torch.cat([context, inputs], dim=-1)

@@ -97,7 +97,6 @@ local classifier = {
       bidirectional: bidirectional,
       dropout: dropout,
       batch_first: true,
-
     },
 
     self_encoder: {
@@ -109,8 +108,6 @@ local classifier = {
       bidirectional: bidirectional,
       dropout: dropout,
       batch_first: true,
-      num_layers: 1,
-      residual: false,
     },
 
     output_layer: {
