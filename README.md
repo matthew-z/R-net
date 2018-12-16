@@ -2,7 +2,7 @@ An unofficial implementation of R-net in [PyTorch](https://github.com/pytorch/py
 
 [Natural Language Computing Group, MSRA: R-NET: Machine Reading Comprehension with Self-matching Networks](https://www.microsoft.com/en-us/research/publication/mrc/)
 
-However, I failed to reproduce the result with the model described in this paper because some details are not very clear to me and the dynamic attention in self-matching requires too much memory. 
+However, I didn't reproduce the model described in this paper because some details are not very clear to me and the dynamic attention in self-matching requires too much memory. 
 
 Thus, I implemented the variant of R-Net according to [HKUST-KnowComp/R-Net](https://github.com/HKUST-KnowComp/R-Net) (in Tensorflow).
 
@@ -16,6 +16,7 @@ Some details in [HKUST-KnowComp/R-Net](https://github.com/HKUST-KnowComp/R-Net) 
 * The GRUs in the pair encoder and the self-matching encoder have only one layer instead of three layers. 
 * Variational dropouts are applied to (1) the inputs of RNNs (2) inputs of attentions 
 
+Furthermore, this repo added ELMo and BERT word embeddings, which further improved the model's performance. 
 
 ### Dependency
 
@@ -38,24 +39,24 @@ Note that the batch size may be a bit too large for 11GB GPUs. Please try 64 in 
 
 The models and hyperparameters are declared in `configs/`
 
-* the HKUST R-Net: `configs/r-net/hkust.jsonnet`
+* the HKUST R-Net: `configs/r-net/hkust.jsonnet` (79.3)
+* the HKUST R-Net + ELMo: `configs/r-net/hkust+elmo.jsonnet`
 * the original R-Net: `configs/r-net/original.jsonnet`  (currently not workable)
 
 
 ### Performance
 
-This implementation of HKUST R-Net can obtain 79.1 F1 score (70.1 EM) on the dev set.
-
+This implementation of HKUST R-Net can obtain 79.4 F1 and 70.5 EM on the validation set.
+With ELMo, the performance becomes 82.2 F1 and 74.4 EM.
 
 
 Red: Training score
-
-Green: Validation score
+Green: dev score
 
 <img src="img/f1.png" width="400"> 
 <img src="img/em.png" width="400">
 
-
+Note that validation score is higher than training because each validation has three acceptable answers, which makes validation easier than training. 
 
 ### Future Work
 
