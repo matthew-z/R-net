@@ -50,8 +50,7 @@ This implementation of HKUST R-Net can obtain 79.4 F1 and 70.5 EM on the validat
 With ELMo, the performance becomes 82.2 F1 and 74.4 EM.
 
 
-Red: Training score
-Green: dev score
+<font color=red>Red: Training score</font>, <font color=green>Green: dev score</font>
 
 <img src="img/f1.png" width="700"> 
 <img src="img/em.png" width="700">
