@@ -31,24 +31,25 @@ Furthermore, this repo added ELMo and BERT word embeddings, which further improv
 ```
 git clone https://github.com/matthew-z/R-net.git
 cd R-net
-python main.py train ./configs/squad/r-net/hkust.jsonnet -o '{"iterator.batch_size": 128}'
+python main.py train configs/squad/r-net/hkust.jsonnet  // HKUST R-Net
 ```
-Note that the batch size may be a bit too large for 11GB GPUs. Please try 64 in case of OOM Error.
+Note that the batch size may be a bit too large for 11GB GPUs. Please try 64 in case of OOM Error by adding this arg: `-o '{"iterator.batch_size": 64}'`.
 
 ### Configuration
 
 The models and hyperparameters are declared in `configs/`
 
-* the HKUST R-Net: `configs/r-net/hkust.jsonnet` (79.3)
-* the HKUST R-Net + ELMo: `configs/r-net/hkust+elmo.jsonnet`
+* the HKUST R-Net: `configs/r-net/hkust.jsonnet` (79.4 F1)
+  * +ELMo: `configs/r-net/hkust+elmo.jsonnet` (82.2 F1)
+  * +BERT:  `configs/r-net/hkust+bert.jsonnet` (work in progress)
 * the original R-Net: `configs/r-net/original.jsonnet`  (currently not workable)
 
 
 ### Performance
 
 This implementation of HKUST R-Net can obtain 79.4 F1 and 70.5 EM on the validation set.
-With ELMo, the performance becomes 82.2 F1 and 74.4 EM.
-
++ ELMo: 82.2 F1 and 74.4 EM.
++ BERT: work in progress.
 
 <font color=red>Red: Training score</font>, <font color=green>Green: dev score</font>
 
@@ -60,8 +61,7 @@ Note that validation score is higher than training because each validation has t
 ### Future Work
 
 * Add ensemble training
-* Add recent embeddings like ElMo and BERT
-
+* Add FP16 training
 
 ### Acknowledgement 
 
