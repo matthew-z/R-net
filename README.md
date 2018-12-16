@@ -2,13 +2,12 @@ An unofficial implementation of R-net in [PyTorch](https://github.com/pytorch/py
 
 [Natural Language Computing Group, MSRA: R-NET: Machine Reading Comprehension with Self-matching Networks](https://www.microsoft.com/en-us/research/publication/mrc/)
 
-However, I didn't reproduce the model described in this paper because some details are not very clear to me and the dynamic attention in self-matching requires too much memory. 
-
-Thus, I implemented the variant of R-Net according to [HKUST-KnowComp/R-Net](https://github.com/HKUST-KnowComp/R-Net) (in Tensorflow).
+Actually, I didn't reproduce the model of this paper exactly because some details are not very clear to me and the dynamic attention in self-matching requires too much memory. 
+Instead, I implemented the variant of R-Net according to [HKUST-KnowComp/R-Net](https://github.com/HKUST-KnowComp/R-Net) (in Tensorflow).
 
 The biggest difference between the original R-net and HKUST R-net is that:
-* The original R-net does attention at each RNN step, which means the hidden state is also involved in the attention calculation. I call it dynamic attention.
-* In HKUST R-Net Attentions in pair encoder and self-matching encoder are calculated before performing RNN.  I call it static attention.
+* The original R-net does attention **at each RNN step**, which means the hidden state is also involved in the attention calculation. I call it dynamic attention.
+* In HKUST R-Net Attentions in pair encoder and self-matching encoder are calculated **before** performing RNN.  I call it static attention.
 
 Some details in [HKUST-KnowComp/R-Net](https://github.com/HKUST-KnowComp/R-Net) that improves performance:
 * Question and Passage share the same GRU sentence encoder instead of using two GRU encoders respectively.
@@ -33,7 +32,8 @@ git clone https://github.com/matthew-z/R-net.git
 cd R-net
 python main.py train configs/squad/r-net/hkust.jsonnet  // HKUST R-Net
 ```
-Note that the batch size may be a bit too large for 11GB GPUs. Please try 64 in case of OOM Error by adding this arg: `-o '{"iterator.batch_size": 64}'`.
+Note that the batch size may be a bit too large for 11GB GPUs. Please try 64 in case of OOM Error by adding the following arg: 
+```-o '{"iterator.batch_size": 64}'```
 
 ### Configuration
 
@@ -51,7 +51,7 @@ This implementation of HKUST R-Net can obtain 79.4 F1 and 70.5 EM on the validat
 + ELMo: 82.2 F1 and 74.4 EM.
 + BERT: work in progress.
 
-<font color=red>Red: Training score</font>, <font color=green>Green: dev score</font>
+<font color=red>Red: training score</font>, <font color=green>Green: validation score</font>
 
 <img src="img/f1.png" width="700"> 
 <img src="img/em.png" width="700">
