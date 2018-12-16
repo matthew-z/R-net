@@ -53,8 +53,8 @@ With ELMo, the performance becomes 82.2 F1 and 74.4 EM.
 Red: Training score
 Green: dev score
 
-<img src="img/f1.png" width="400"> 
-<img src="img/em.png" width="400">
+<img src="img/f1.png" width="700"> 
+<img src="img/em.png" width="700">
 
 Note that validation score is higher than training because each validation has three acceptable answers, which makes validation easier than training. 
 
