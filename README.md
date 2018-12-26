@@ -1,6 +1,6 @@
 An unofficial implementation of R-net in [PyTorch](https://github.com/pytorch/pytorch) and [AllenNLP](https://github.com/allenai/allennlp).
 
-[Natural Language Computing Group, MSRA: R-NET: Machine Reading Comprehension with Self-matching Networks](https://www.microsoft.com/en-us/research/publication/mrc/)
+[Natural Language Computing Group, MSRA: R-NET: Machine Reading Comprehension with Self-matching Networks](https://www.microsoft.com/en-us/research/wp-content/uploads/2017/05/r-net.pdf)
 
 Actually, I didn't reproduce the model of this paper exactly because some details are not very clear to me and the dynamic attention in self-matching requires too much memory. 
 Instead, I implemented the variant of R-Net according to [HKUST-KnowComp/R-Net](https://github.com/HKUST-KnowComp/R-Net) (in Tensorflow).
