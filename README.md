@@ -6,8 +6,8 @@ Actually, I didn't reproduce the model of this paper exactly because some detail
 Instead, I implemented the variant of R-Net according to [HKUST-KnowComp/R-Net](https://github.com/HKUST-KnowComp/R-Net) (in Tensorflow).
 
 The biggest difference between the original R-net and HKUST R-net is that:
-* The original R-net does attention **at each RNN step**, which means the hidden state is also involved in the attention calculation. I call it dynamic attention.
-* In HKUST R-Net Attentions in pair encoder and self-matching encoder are calculated **before** performing RNN.  I call it static attention.
+* The original R-net performs attention **at each RNN step**, which means that the hidden states are involved in the attention calculation. I call it dynamic attention.
+* In HKUST R-Net, attentions (in pair encoder and self-matching encoder) are calculated **before** performing RNN.  I call it static attention.
 
 Some details in [HKUST-KnowComp/R-Net](https://github.com/HKUST-KnowComp/R-Net) that improves performance:
 * Question and Passage share the same GRU sentence encoder instead of using two GRU encoders respectively.
@@ -15,7 +15,7 @@ Some details in [HKUST-KnowComp/R-Net](https://github.com/HKUST-KnowComp/R-Net) 
 * The GRUs in the pair encoder and the self-matching encoder have only one layer instead of three layers. 
 * Variational dropouts are applied to (1) the inputs of RNNs (2) inputs of attentions 
 
-Furthermore, this repo added ELMo and BERT word embeddings, which further improved the model's performance. 
+Furthermore, this repo added ELMo word embeddings, which further improved the model's performance. 
 
 ### Dependency
 
@@ -41,7 +41,6 @@ The models and hyperparameters are declared in `configs/`
 
 * the HKUST R-Net: `configs/r-net/hkust.jsonnet` (79.4 F1)
   * +ELMo: `configs/r-net/hkust+elmo.jsonnet` (82.2 F1)
-  * +BERT:  `configs/r-net/hkust+bert.jsonnet` (work in progress)
 * the original R-Net: `configs/r-net/original.jsonnet`  (currently not workable)
 
 
@@ -49,8 +48,8 @@ The models and hyperparameters are declared in `configs/`
 
 This implementation of HKUST R-Net can obtain 79.4 F1 and 70.5 EM on the validation set.
 + ELMo: 82.2 F1 and 74.4 EM.
-+ BERT: work in progress.
 
+The visualization of R-Net + Elmo Training:
 <font color=red>Red: training score</font>, <font color=green>Green: validation score</font>
 
 <img src="img/f1.png" width="700"> 
@@ -59,7 +58,7 @@ This implementation of HKUST R-Net can obtain 79.4 F1 and 70.5 EM on the validat
 Note that validation score is higher than training because each validation has three acceptable answers, which makes validation easier than training. 
 
 ### Future Work
-
+* Add BERT:  A preliminary implementation is in `configs/r-net/hkust+bert.jsonnet`
 * Add ensemble training
 * Add FP16 training
 
